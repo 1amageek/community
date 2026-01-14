@@ -21,23 +21,32 @@ Built on Swift's Distributed Actors and gRPC, allowing members on different mach
 
 ## Installation
 
+### Using Mint (Recommended)
+
+```bash
+mint install 1amageek/community
+```
+
+### From Source
+
 ```bash
 git clone https://github.com/1amageek/community.git
 cd community
-swift build
+swift build -c release
+cp .build/release/mm /usr/local/bin/
 ```
 
 ## Quick Start
 
 ```bash
 # Terminal 1: Join as alice
-swift run mm join -n alice -p 50051
+mm join -n alice -p 50051
 
 # Terminal 2: Join as bob
-swift run mm join -n bob -p 50052
+mm join -n bob -p 50052
 
 # Terminal 3: Send message from anywhere
-swift run mm tell alice "Hello from the network!" -p 50051
+mm tell alice "Hello from the network!" -p 50051
 ```
 
 ## Usage
@@ -46,13 +55,13 @@ swift run mm tell alice "Hello from the network!" -p 50051
 
 ```bash
 # Join with default shell (/bin/bash)
-swift run mm join
+mm join
 
 # Join with a custom command
-swift run mm join /bin/zsh
+mm join /bin/zsh
 
 # Specify name and port
-swift run mm join /bin/bash -n alice -p 50051
+mm join /bin/bash -n alice -p 50051
 ```
 
 This starts a PTY (pseudo-terminal) running your command. Press `Ctrl+C` to exit.
@@ -61,10 +70,10 @@ This starts a PTY (pseudo-terminal) running your command. Press `Ctrl+C` to exit
 
 ```bash
 # Send message to a member on localhost
-swift run mm tell alice "Hello, Alice!"
+mm tell alice "Hello, Alice!"
 
 # Send message to a member on a remote host
-swift run mm tell alice "Hello!" -h 192.168.1.100 -p 50051
+mm tell alice "Hello!" -h 192.168.1.100 -p 50051
 ```
 
 Messages are sent as input to the target member's PTY.
@@ -73,10 +82,10 @@ Messages are sent as input to the target member's PTY.
 
 ```bash
 # List members on localhost
-swift run mm list
+mm list
 
 # List members on a remote host
-swift run mm list -h 192.168.1.100 -p 50051
+mm list -h 192.168.1.100 -p 50051
 ```
 
 ## Commands
