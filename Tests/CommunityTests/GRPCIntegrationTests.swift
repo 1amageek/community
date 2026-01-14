@@ -1,445 +1,191 @@
 import Testing
 import Foundation
-import Discovery
-@testable import Community
+@testable import CommunityCore
 
-/// Integration tests for gRPC-based distributed actor communication
-///
-/// These tests verify that the full communication stack works correctly:
-/// - Server startup and client connection
-/// - Member discovery across peers
-/// - Distributed method invocation (tell)
-@Suite("gRPC Integration Tests")
-struct GRPCIntegrationTests {
+extension SerializedTestSuites {
+    /// Integration tests for gRPC-based distributed actor communication
+    @Suite("gRPC Integration Tests")
+    struct GRPCIntegrationTests {
 
-    // MARK: - Server/Client Connection Tests
-
-    @Test("Server starts and client can connect")
-    func serverStartsAndClientConnects() async throws {
-        // Start server on random port
-        let serverSystem = CommunitySystem(name: "server")
-        let serverTransport = GRPCTransport(
-            localPeerInfo: serverSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(port: 0, serverEnabled: true),
-            dataHandler: serverSystem.makeDataHandler()
-        )
-
-        try await serverSystem.start(transports: [serverTransport])
-
-        // Get the actual bound port
-        let serverPort = await serverTransport.boundPort
-        #expect(serverPort != nil, "Server should bind to a port")
-        #expect(serverPort! > 0, "Server port should be valid")
-
-        // Start client connecting to server
-        let clientSystem = CommunitySystem(name: "client")
-        let clientTransport = GRPCTransport(
-            localPeerInfo: clientSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(
-                knownPeers: [
-                    GRPCTransport.PeerEndpoint(
-                        peerID: PeerID("server"),
-                        host: "127.0.0.1",
-                        port: serverPort!
-                    )
-                ],
-                serverEnabled: false
+        @Test("Server starts and stops cleanly")
+        func serverStartsAndStops() async throws {
+            let system = CommunitySystem(name: "test-server")
+            let transport = GRPCTransport(
+            configuration: .server(port: 0)
             )
-        )
 
-        try await clientSystem.start(transports: [clientTransport])
+            try await transport.open()
+            try await system.start(transport: transport)
 
-        // Cleanup
-        try await clientSystem.stop()
-        try await serverSystem.stop()
-    }
+            // Verify server is running
+            let port = transport.boundPort
+            #expect(port != nil)
+            #expect(port! > 0)
 
-    @Test("Client discovers server peer via resolve")
-    func clientDiscoversPeerViaResolve() async throws {
-        // Start server
-        let serverSystem = CommunitySystem(name: "server-peer")
-        let serverTransport = GRPCTransport(
-            localPeerInfo: serverSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(port: 0, serverEnabled: true),
-            dataHandler: serverSystem.makeDataHandler()
-        )
+            try await system.stop()
+        }
 
-        try await serverSystem.start(transports: [serverTransport])
-        let serverPort = await serverTransport.boundPort!
-
-        // Start client
-        let clientSystem = CommunitySystem(name: "client-peer")
-        let clientTransport = GRPCTransport(
-            localPeerInfo: clientSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(
-                knownPeers: [
-                    GRPCTransport.PeerEndpoint(
-                        peerID: PeerID("initial-peer"),
-                        host: "127.0.0.1",
-                        port: serverPort
-                    )
-                ],
-                serverEnabled: false
+        @Test("Client connects to server")
+        func clientConnectsToServer() async throws {
+            // Start server
+            let serverSystem = CommunitySystem(name: "server")
+            let serverTransport = GRPCTransport(
+            configuration: .server(port: 0)
             )
-        )
+            try await serverTransport.open()
+            try await serverSystem.start(transport: serverTransport)
 
-        try await clientSystem.start(transports: [clientTransport])
+            // Create system actor on server
+            _ = serverSystem.createSystemActor()
 
-        // Verify client can see the server peer
-        let discoveredPeers = await clientTransport.registeredPeers
-        #expect(discoveredPeers.contains(where: { $0.value == "server-peer" }),
-                "Client should discover server peer")
+            guard let serverPort = serverTransport.boundPort else {
+                throw CommunityError.systemNotStarted
+            }
 
-        // Cleanup
-        try await clientSystem.stop()
-        try await serverSystem.stop()
-    }
-
-    // MARK: - Member Discovery Tests
-
-    @Test("Client discovers members on server")
-    func clientDiscoversMembersOnServer() async throws {
-        // Start server with a member
-        let serverSystem = CommunitySystem(name: "server")
-        let serverTransport = GRPCTransport(
-            localPeerInfo: serverSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(port: 0, serverEnabled: true),
-            dataHandler: serverSystem.makeDataHandler()
-        )
-
-        try await serverSystem.start(transports: [serverTransport])
-        let serverPort = await serverTransport.boundPort!
-
-        // Create a member on server (using /bin/cat which just echoes)
-        let pty = try PTY(command: "/bin/cat")
-        _ = try serverSystem.createMember(name: "test-member", pty: pty)
-
-        // Start client
-        let clientSystem = CommunitySystem(name: "client")
-        let clientTransport = GRPCTransport(
-            localPeerInfo: clientSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(
-                knownPeers: [
-                    GRPCTransport.PeerEndpoint(
-                        peerID: PeerID("server"),
-                        host: "127.0.0.1",
-                        port: serverPort
-                    )
-                ],
-                serverEnabled: false
+            // Start client
+            let clientSystem = CommunitySystem(name: "client")
+            let clientTransport = GRPCTransport(
+            configuration: .client(host: "127.0.0.1", port: serverPort)
             )
-        )
+            try await clientTransport.open()
+            try await clientSystem.start(transport: clientTransport)
 
-        try await clientSystem.start(transports: [clientTransport])
+            // Query server's system actor
+            let remotePeerID = PeerID("127.0.0.1:\(serverPort)")
+            let systemActor = try clientSystem.remoteSystemActor(peerID: remotePeerID)
 
-        // Discover members
-        let members = try await clientSystem.discoverMembers(timeout: 3)
+            // List members (should be empty since we haven't created any)
+            let members = try await systemActor.listMembers()
+            #expect(members.isEmpty)
 
-        #expect(members.contains(where: { $0.name == "test-member" }),
-                "Client should discover 'test-member' on server")
+            try await clientSystem.stop()
+            try await serverSystem.stop()
+        }
 
-        // Cleanup
-        pty.close()
-        try await clientSystem.stop()
-        try await serverSystem.stop()
-    }
-
-    @Test("Client finds specific member by name")
-    func clientFindsSpecificMemberByName() async throws {
-        // Start server with a member
-        let serverSystem = CommunitySystem(name: "server")
-        let serverTransport = GRPCTransport(
-            localPeerInfo: serverSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(port: 0, serverEnabled: true),
-            dataHandler: serverSystem.makeDataHandler()
-        )
-
-        try await serverSystem.start(transports: [serverTransport])
-        let serverPort = await serverTransport.boundPort!
-
-        let pty = try PTY(command: "/bin/cat")
-        let serverMember = try serverSystem.createMember(name: "alice", pty: pty)
-
-        // Start client
-        let clientSystem = CommunitySystem(name: "client")
-        let clientTransport = GRPCTransport(
-            localPeerInfo: clientSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(
-                knownPeers: [
-                    GRPCTransport.PeerEndpoint(
-                        peerID: PeerID("server"),
-                        host: "127.0.0.1",
-                        port: serverPort
-                    )
-                ],
-                serverEnabled: false
+        @Test("Member registration and discovery")
+        func memberRegistrationAndDiscovery() async throws {
+            // Start server
+            let serverSystem = CommunitySystem(name: "server")
+            let serverTransport = GRPCTransport(
+            configuration: .server(port: 0)
             )
-        )
+            try await serverTransport.open()
+            try await serverSystem.start(transport: serverTransport)
 
-        try await clientSystem.start(transports: [clientTransport])
+            // Create system actor
+            _ = serverSystem.createSystemActor()
 
-        // Find specific member
-        let foundID = try await clientSystem.findMember(name: "alice", timeout: 3)
+            // Create a member with echo command
+            let pty = try PTY(command: "/bin/cat")
+            _ = try serverSystem.createMember(name: "test-member", pty: pty, ownsPTY: true)
 
-        #expect(foundID != nil, "Client should find 'alice'")
-        #expect(foundID?.id == serverMember.id.id, "Found ID should match server member's ID")
+            guard let serverPort = serverTransport.boundPort else {
+                throw CommunityError.systemNotStarted
+            }
 
-        // Cleanup
-        pty.close()
-        try await clientSystem.stop()
-        try await serverSystem.stop()
-    }
-
-    // MARK: - Distributed Method Invocation Tests
-
-    @Test("Client can invoke tell on remote member")
-    func clientCanInvokeTellOnRemoteMember() async throws {
-        // Start server with a member
-        let serverSystem = CommunitySystem(name: "server")
-        let serverTransport = GRPCTransport(
-            localPeerInfo: serverSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(port: 0, serverEnabled: true),
-            dataHandler: serverSystem.makeDataHandler()
-        )
-
-        try await serverSystem.start(transports: [serverTransport])
-        let serverPort = await serverTransport.boundPort!
-
-        // Use /bin/cat which just buffers input
-        let pty = try PTY(command: "/bin/cat")
-        _ = try serverSystem.createMember(name: "bob", pty: pty)
-
-        // Start client
-        let clientSystem = CommunitySystem(name: "client")
-        let clientTransport = GRPCTransport(
-            localPeerInfo: clientSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(
-                knownPeers: [
-                    GRPCTransport.PeerEndpoint(
-                        peerID: PeerID("server"),
-                        host: "127.0.0.1",
-                        port: serverPort
-                    )
-                ],
-                serverEnabled: false
+            // Start client
+            let clientSystem = CommunitySystem(name: "client")
+            let clientTransport = GRPCTransport(
+            configuration: .client(host: "127.0.0.1", port: serverPort)
             )
-        )
+            try await clientTransport.open()
+            try await clientSystem.start(transport: clientTransport)
 
-        try await clientSystem.start(transports: [clientTransport])
+            // Query server's system actor
+            let remotePeerID = PeerID("127.0.0.1:\(serverPort)")
+            let systemActor = try clientSystem.remoteSystemActor(peerID: remotePeerID)
 
-        // Find member and invoke tell
-        guard let memberID = try await clientSystem.findMember(name: "bob", timeout: 3) else {
-            Issue.record("Failed to find member 'bob'")
+            // Find member
+            let memberID = try await systemActor.findMember(name: "test-member")
+            #expect(memberID != nil)
+
+            // List members
+            let members = try await systemActor.listMembers()
+            #expect(members.count == 1)
+            #expect(members.first?.name == "test-member")
+
             pty.close()
             try await clientSystem.stop()
             try await serverSystem.stop()
-            return
         }
 
-        // Resolve the remote member and call tell
-        let member = try Member.resolve(id: memberID, using: clientSystem)
-        try await member.tell("Hello from client")
-
-        // Give PTY time to process
-        try await Task.sleep(for: .milliseconds(100))
-
-        // Verify message was written (check PTY received it)
-        // Note: In real usage, the message would appear in the PTY output
-        // For testing, we just verify no exception was thrown
-
-        // Cleanup
-        pty.close()
-        try await clientSystem.stop()
-        try await serverSystem.stop()
-    }
-
-    @Test("Remote getName call returns correct value")
-    func remoteGetNameReturnsCorrectValue() async throws {
-        // Start server with a member
-        let serverSystem = CommunitySystem(name: "server")
-        let serverTransport = GRPCTransport(
-            localPeerInfo: serverSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(port: 0, serverEnabled: true),
-            dataHandler: serverSystem.makeDataHandler()
-        )
-
-        try await serverSystem.start(transports: [serverTransport])
-        let serverPort = await serverTransport.boundPort!
-
-        let pty = try PTY(command: "/bin/cat")
-        _ = try serverSystem.createMember(name: "charlie", pty: pty)
-
-        // Start client
-        let clientSystem = CommunitySystem(name: "client")
-        let clientTransport = GRPCTransport(
-            localPeerInfo: clientSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(
-                knownPeers: [
-                    GRPCTransport.PeerEndpoint(
-                        peerID: PeerID("server"),
-                        host: "127.0.0.1",
-                        port: serverPort
-                    )
-                ],
-                serverEnabled: false
+        @Test("Tell message to remote member")
+        func tellMessageToRemoteMember() async throws {
+            // Start server
+            let serverSystem = CommunitySystem(name: "server")
+            let serverTransport = GRPCTransport(
+            configuration: .server(port: 0)
             )
-        )
+            try await serverTransport.open()
+            try await serverSystem.start(transport: serverTransport)
 
-        try await clientSystem.start(transports: [clientTransport])
+            // Create system actor
+            _ = serverSystem.createSystemActor()
 
-        // Find and call getName
-        guard let memberID = try await clientSystem.findMember(name: "charlie", timeout: 3) else {
-            Issue.record("Failed to find member 'charlie'")
+            // Create a member with cat command
+            let pty = try PTY(command: "/bin/cat")
+            _ = try serverSystem.createMember(name: "alice", pty: pty, ownsPTY: true)
+
+            guard let serverPort = serverTransport.boundPort else {
+                throw CommunityError.systemNotStarted
+            }
+
+            // Start client
+            let clientSystem = CommunitySystem(name: "client")
+            let clientTransport = GRPCTransport(
+            configuration: .client(host: "127.0.0.1", port: serverPort)
+            )
+            try await clientTransport.open()
+            try await clientSystem.start(transport: clientTransport)
+
+            // Find member via system actor
+            let remotePeerID = PeerID("127.0.0.1:\(serverPort)")
+            let systemActor = try clientSystem.remoteSystemActor(peerID: remotePeerID)
+
+            guard let memberID = try await systemActor.findMember(name: "alice") else {
+                throw CommunityError.memberNotFound("alice")
+            }
+
+            // Resolve member and send message
+            let member = try Member.resolve(id: memberID, using: clientSystem)
+            try await member.tell("hello world")
+
+            // Wait for the message to be processed
+            try await Task.sleep(for: .milliseconds(100))
+
+            // Verify member is running
+            let isRunning = try await member.isRunning()
+            #expect(isRunning)
+
             pty.close()
             try await clientSystem.stop()
             try await serverSystem.stop()
-            return
         }
 
-        let member = try Member.resolve(id: memberID, using: clientSystem)
-        let name = try await member.getName()
-
-        #expect(name == "charlie", "Remote getName should return 'charlie'")
-
-        // Cleanup
-        pty.close()
-        try await clientSystem.stop()
-        try await serverSystem.stop()
-    }
-
-    // MARK: - Error Handling Tests
-
-    @Test("Connection to non-existent server times out gracefully")
-    func connectionToNonExistentServerTimesOut() async throws {
-        let clientSystem = CommunitySystem(name: "client")
-        let clientTransport = GRPCTransport(
-            localPeerInfo: clientSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(
-                knownPeers: [
-                    GRPCTransport.PeerEndpoint(
-                        peerID: PeerID("nonexistent"),
-                        host: "127.0.0.1",
-                        port: 59999  // Unlikely to be in use
-                    )
-                ],
-                serverEnabled: false
+        @Test("Connection to non-existent server times out gracefully")
+        func connectionToNonExistentServerTimesOut() async throws {
+            let clientSystem = CommunitySystem(name: "client")
+            let clientTransport = GRPCTransport(
+            configuration: .client(host: "127.0.0.1", port: 59999)
             )
-        )
 
-        // Should not throw, just fail to connect
-        try await clientSystem.start(transports: [clientTransport])
+            // Start transport and system
+            try await clientTransport.open()
+            try await clientSystem.start(transport: clientTransport)
 
-        // Discovery should return empty or timeout
-        let members = try await clientSystem.discoverMembers(timeout: 1)
-        // May or may not find local members, but should not crash
+            // Attempting to use the transport will fail
+            let remotePeerID = PeerID("127.0.0.1:59999")
+            let systemActor = try clientSystem.remoteSystemActor(peerID: remotePeerID)
 
-        try await clientSystem.stop()
-    }
+            // This should throw since server doesn't exist
+            do {
+                _ = try await systemActor.listMembers()
+                Issue.record("Expected connection to fail")
+            } catch {
+                // Expected - connection failed
+            }
 
-    @Test("Finding non-existent member returns nil")
-    func findingNonExistentMemberReturnsNil() async throws {
-        // Start server without any members
-        let serverSystem = CommunitySystem(name: "server")
-        let serverTransport = GRPCTransport(
-            localPeerInfo: serverSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(port: 0, serverEnabled: true),
-            dataHandler: serverSystem.makeDataHandler()
-        )
-
-        try await serverSystem.start(transports: [serverTransport])
-        let serverPort = await serverTransport.boundPort!
-
-        // Start client
-        let clientSystem = CommunitySystem(name: "client")
-        let clientTransport = GRPCTransport(
-            localPeerInfo: clientSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(
-                knownPeers: [
-                    GRPCTransport.PeerEndpoint(
-                        peerID: PeerID("server"),
-                        host: "127.0.0.1",
-                        port: serverPort
-                    )
-                ],
-                serverEnabled: false
-            )
-        )
-
-        try await clientSystem.start(transports: [clientTransport])
-
-        // Try to find non-existent member
-        let foundID = try await clientSystem.findMember(name: "nonexistent", timeout: 1)
-
-        #expect(foundID == nil, "Should not find non-existent member")
-
-        try await clientSystem.stop()
-        try await serverSystem.stop()
-    }
-
-    // MARK: - Multiple Peers Tests
-
-    @Test("Discovery finds members across multiple peers")
-    func discoveryFindsAcrossMultiplePeers() async throws {
-        // Start server 1
-        let server1System = CommunitySystem(name: "server1")
-        let server1Transport = GRPCTransport(
-            localPeerInfo: server1System.localPeerInfo,
-            config: GRPCTransport.Configuration(port: 0, serverEnabled: true),
-            dataHandler: server1System.makeDataHandler()
-        )
-        try await server1System.start(transports: [server1Transport])
-        let server1Port = await server1Transport.boundPort!
-
-        let pty1 = try PTY(command: "/bin/cat")
-        _ = try server1System.createMember(name: "member1", pty: pty1)
-
-        // Start server 2
-        let server2System = CommunitySystem(name: "server2")
-        let server2Transport = GRPCTransport(
-            localPeerInfo: server2System.localPeerInfo,
-            config: GRPCTransport.Configuration(port: 0, serverEnabled: true),
-            dataHandler: server2System.makeDataHandler()
-        )
-        try await server2System.start(transports: [server2Transport])
-        let server2Port = await server2Transport.boundPort!
-
-        let pty2 = try PTY(command: "/bin/cat")
-        _ = try server2System.createMember(name: "member2", pty: pty2)
-
-        // Start client connecting to both servers
-        let clientSystem = CommunitySystem(name: "client")
-        let clientTransport = GRPCTransport(
-            localPeerInfo: clientSystem.localPeerInfo,
-            config: GRPCTransport.Configuration(
-                knownPeers: [
-                    GRPCTransport.PeerEndpoint(
-                        peerID: PeerID("server1"),
-                        host: "127.0.0.1",
-                        port: server1Port
-                    ),
-                    GRPCTransport.PeerEndpoint(
-                        peerID: PeerID("server2"),
-                        host: "127.0.0.1",
-                        port: server2Port
-                    )
-                ],
-                serverEnabled: false
-            )
-        )
-        try await clientSystem.start(transports: [clientTransport])
-
-        // Discover all members
-        let members = try await clientSystem.discoverMembers(timeout: 3)
-        let memberNames = members.map { $0.name }
-
-        #expect(memberNames.contains("member1"), "Should find member1 from server1")
-        #expect(memberNames.contains("member2"), "Should find member2 from server2")
-
-        // Cleanup
-        pty1.close()
-        pty2.close()
-        try await clientSystem.stop()
-        try await server2System.stop()
-        try await server1System.stop()
+            try await clientSystem.stop()
+        }
     }
 }

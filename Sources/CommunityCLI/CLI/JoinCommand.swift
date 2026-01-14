@@ -1,6 +1,6 @@
 import ArgumentParser
+import CommunityCore
 import Foundation
-import Discovery
 import Synchronization
 
 /// Join the community as a member with a PTY
@@ -45,15 +45,17 @@ public struct JoinCommand: AsyncParsableCommand {
         // Create the actor system
         let system = CommunitySystem(name: memberName)
 
-        // Create gRPC transport with data handler to process incoming invocations
+        // Create and start gRPC transport
         let transport = GRPCTransport(
-            localPeerInfo: system.localPeerInfo,
-            config: GRPCTransport.Configuration(port: port),
-            dataHandler: system.makeDataHandler()
+            configuration: .server(port: port)
         )
+        try await transport.open()
 
-        // Start the system
-        try await system.start(transports: [transport])
+        // Start the system with the transport
+        try await system.start(transport: transport)
+
+        // Create system actor for remote queries
+        _ = system.createSystemActor()
 
         print("Joined as '\(memberName)' running '\(command)' on port \(port)")
         print("Press Ctrl+C to leave")

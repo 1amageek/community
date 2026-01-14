@@ -1,6 +1,6 @@
 import ArgumentParser
+import CommunityCore
 import Foundation
-import Discovery
 
 /// Send a message to a member
 public struct TellCommand: AsyncParsableCommand {
@@ -27,43 +27,35 @@ public struct TellCommand: AsyncParsableCommand {
         // Create the actor system
         let system = CommunitySystem()
 
-        // Create gRPC transport with known peer
-        let knownPeer = GRPCTransport.PeerEndpoint(
-            peerID: PeerID(name),
-            host: host,
-            port: port
-        )
-        print("Connecting to peer '\(name)' at \(host):\(port)...")
-
+        // Create and start gRPC transport in client mode
         let transport = GRPCTransport(
-            localPeerInfo: system.localPeerInfo,
-            config: GRPCTransport.Configuration(
-                knownPeers: [knownPeer],
-                serverEnabled: false  // Client-only mode
-            )
+            configuration: .client(host: host, port: port)
         )
+
+        print("Connecting to \(host):\(port)...")
+        try await transport.open()
 
         // Start the system
-        do {
-            try await system.start(transports: [transport])
-            print("System started")
-        } catch {
-            print("Failed to start system: \(error)")
-            throw error
-        }
+        try await system.start(transport: transport)
+        print("Connected.")
 
-        // Find the member
+        // Get remote system actor to find the member
+        let remotePeerID = PeerID("\(host):\(port)")
+        let systemActor = try system.remoteSystemActor(peerID: remotePeerID)
+
         print("Looking for member '\(name)'...")
 
-        guard let memberID = try await system.findMember(name: name) else {
+        // Find the member
+        guard let memberID = try await systemActor.findMember(name: name) else {
             print("Member '\(name)' not found")
             try await system.stop()
             throw ExitCode.failure
         }
 
+        print("Found member: \(memberID)")
+
         // Resolve and call the member
         do {
-            // Create a proxy to the remote member
             let member = try Member.resolve(id: memberID, using: system)
             try await member.tell(message)
             print("Sent to '\(name)': \(message)")

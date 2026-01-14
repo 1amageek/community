@@ -2,6 +2,7 @@
 .DS_Store
 .AppleDouble
 .LSOverride
+._*
 
 # Xcode
 xcuserdata/
@@ -10,6 +11,7 @@ DerivedData/
 *.xccheckout
 *.moved-aside
 *.xcuserstate
+*.xcworkspace
 
 # Swift Package Manager
 .build/
@@ -24,6 +26,9 @@ Pods/
 Carthage/Build/
 Carthage/Checkouts/
 
+# Mint
+.mint/
+
 # Generated files
 *.generated.swift
 
@@ -32,21 +37,32 @@ Carthage/Checkouts/
 *.pem
 *.p12
 *.key
+.env
+.env.*
 
 # IDE
-*.idea/
-*.vscode/
+.idea/
+.vscode/
+*.sublime-*
 
 # Test artifacts
 *.xcresult
 coverage/
+.coverage
 
 # Temporary files
 *.tmp
 *.temp
 *~
+*.swp
+*.swo
 
 # Build artifacts
 *.o
 *.a
 *.dylib
+*.dSYM/
+
+# Logs
+*.log
+logs/

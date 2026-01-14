@@ -1,7 +1,7 @@
 import Testing
 import Foundation
-import Discovery
-@testable import Community
+import Peer
+@testable import CommunityCore
 
 @Suite("CommunityActorID Tests")
 struct CommunityActorIDTests {

@@ -1,4 +1,5 @@
 import ArgumentParser
+import CommunityCore
 import Foundation
 
 /// Main CLI command for the community member management tool

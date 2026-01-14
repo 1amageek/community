@@ -1,6 +1,6 @@
 import Foundation
 import Distributed
-import Discovery
+import Peer
 
 /// A distributed actor representing a member in the community
 ///

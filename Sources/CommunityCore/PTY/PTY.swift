@@ -25,16 +25,13 @@ public enum PTYError: Error, Sendable, Equatable {
 public final class PTY: @unchecked Sendable {
     private let masterFD: Int32
     private let childPID: pid_t
+    private let childPGID: pid_t
     private let readHandle: FileHandle
     private let writeHandle: FileHandle
     private var isClosed = false
     private let lock = NSLock()
 
     public init(command: String) throws {
-        // Use forkpty via Process
-        var masterFDValue: Int32 = -1
-        var childPIDValue: pid_t = -1
-
         // Create pipe for communication
         var masterPty: Int32 = -1
         var slavePty: Int32 = -1
@@ -70,7 +67,9 @@ public final class PTY: @unchecked Sendable {
         // Setup spawn attributes
         var attr: posix_spawnattr_t?
         posix_spawnattr_init(&attr)
-        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID))
+        // POSIX_SPAWN_SETPGROUP で新しいプロセスグループを作成
+        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETPGROUP))
+        posix_spawnattr_setpgroup(&attr, 0)  // 自身のPIDをプロセスグループIDに
 
         // Setup file actions to redirect stdio to slave PTY
         var fileActions: posix_spawn_file_actions_t?
@@ -83,7 +82,7 @@ public final class PTY: @unchecked Sendable {
 
         // Prepare command
         let shell = command.isEmpty ? "/bin/bash" : command
-        let args = ["/bin/bash", "-l", "-c", shell]
+        let args = ["/bin/bash", "-c", shell]  // TODO: -l を戻す
 
         // Spawn process
         var pid: pid_t = 0
@@ -105,6 +104,12 @@ public final class PTY: @unchecked Sendable {
 
         self.masterFD = masterPty
         self.childPID = pid
+        var pgid = getpgid(pid)
+        if pgid <= 0 {
+            _ = setpgid(pid, pid)
+            pgid = getpgid(pid)
+        }
+        self.childPGID = pgid > 0 ? pgid : pid
         self.readHandle = FileHandle(fileDescriptor: masterPty, closeOnDealloc: false)
         self.writeHandle = FileHandle(fileDescriptor: masterPty, closeOnDealloc: false)
     }
@@ -217,17 +222,64 @@ public final class PTY: @unchecked Sendable {
     // MARK: - Process Control
 
     public var isRunning: Bool {
+        // まず waitpid で状態を確認（ゾンビプロセスをreapする）
         var status: Int32 = 0
-        let result = waitpid(childPID, &status, WNOHANG)
-        return result == 0
+        let waitResult = waitpid(childPID, &status, WNOHANG)
+
+        if waitResult > 0 {
+            // プロセスが終了した（reapされた）
+            return false
+        }
+
+        if waitResult == -1 {
+            // エラー（プロセスが存在しない場合はECHILD）
+            return false
+        }
+
+        // waitResult == 0 の場合、プロセスはまだ実行中
+        // kill(pid, 0) で存在確認
+        errno = 0
+        let killResult = kill(childPID, 0)
+        return killResult == 0
     }
 
     public func terminate() {
-        kill(childPID, SIGTERM)
+        sendSignalToChild(SIGTERM)
+
+        // Wait briefly for graceful exit
+        var status: Int32 = 0
+        for _ in 0..<10 {
+            let result = waitpid(childPID, &status, WNOHANG)
+            if result != 0 {
+                return
+            }
+            usleep(100_000)  // 100ms
+        }
+
+        // Fallback to SIGKILL if still running
+        sendSignalToChild(SIGKILL)
     }
 
     public func killProcess() {
-        kill(childPID, SIGKILL)
+        sendSignalToChild(SIGKILL)
+    }
+
+    /// 子プロセスにシグナルを送信
+    private func sendSignalToChild(_ signal: Int32) {
+        let parentPGID = getpgid(getpid())
+        var pgids = Set<pid_t>()
+        if childPGID > 0 { pgids.insert(childPGID) }
+        let currentChildPGID = getpgid(childPID)
+        if currentChildPGID > 0 { pgids.insert(currentChildPGID) }
+        let foregroundPGID = tcgetpgrp(masterFD)
+        if foregroundPGID > 0 { pgids.insert(foregroundPGID) }
+
+        for pgid in pgids where pgid != parentPGID {
+            kill(-pgid, signal)
+        }
+
+        // 直接子プロセスにもシグナルを送信
+        kill(childPID, signal)
     }
 
     // MARK: - Cleanup
@@ -254,8 +306,8 @@ public final class PTY: @unchecked Sendable {
             usleep(100_000)  // 100ms
         }
 
-        // 3. Send SIGINT to process group
-        kill(-childPID, SIGINT)
+        // 3. Send SIGINT to process group/child
+        sendSignalToChild(SIGINT)
 
         for _ in 0..<10 {
             let result = waitpid(childPID, &status, WNOHANG)
@@ -267,7 +319,7 @@ public final class PTY: @unchecked Sendable {
         }
 
         // 4. Send SIGTERM
-        kill(-childPID, SIGTERM)
+        sendSignalToChild(SIGTERM)
 
         for _ in 0..<10 {
             let result = waitpid(childPID, &status, WNOHANG)
@@ -279,7 +331,7 @@ public final class PTY: @unchecked Sendable {
         }
 
         // 5. Force kill as last resort
-        kill(-childPID, SIGKILL)
+        sendSignalToChild(SIGKILL)
         waitpid(childPID, &status, 0)
 
         Darwin.close(masterFD)

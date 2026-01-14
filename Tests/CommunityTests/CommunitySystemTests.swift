@@ -1,7 +1,7 @@
 import Testing
 import Foundation
-import Discovery
-@testable import Community
+import Peer
+@testable import CommunityCore
 
 @Suite("CommunitySystem Tests")
 struct CommunitySystemTests {
@@ -22,23 +22,15 @@ struct CommunitySystemTests {
 
     // MARK: - ライフサイクルテスト
 
-    @Test("Start with empty transport list succeeds")
-    func startWithEmptyTransports() async throws {
-        let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
-        try await system.stop()
-    }
-
     @Test("Start is idempotent")
     func startIsIdempotent() async throws {
         let system = CommunitySystem(name: "test")
-        let transport = MockTransport()
+        let transport = MockDistributedTransport()
 
-        try await system.start(transports: [transport])
-        try await system.start(transports: [transport])  // 2回目
+        try await system.start(transport: transport)
+        try await system.start(transport: transport)  // 2回目
 
-        #expect(await transport.startCount == 1)  // 1回だけ開始される
-
+        // システムは1回だけ開始される（トランスポートのstartはCommunitySystemが呼ばない）
         try await system.stop()
     }
 
@@ -52,7 +44,8 @@ struct CommunitySystemTests {
     @Test("Stop is idempotent")
     func stopIsIdempotent() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
+        let transport = MockDistributedTransport()
+        try await system.start(transport: transport)
 
         try await system.stop()
         try await system.stop()  // 2回目もエラーにならない
@@ -61,7 +54,8 @@ struct CommunitySystemTests {
     @Test("Stop clears both registries")
     func stopClearsRegistries() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
+        let transport = MockDistributedTransport()
+        try await system.start(transport: transport)
 
         // 名前を登録
         let actorID = system.assignID(Member.self)
@@ -159,7 +153,6 @@ struct CommunitySystemTests {
     @Test("resolve local actor returns instance")
     func resolveLocalReturnsInstance() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
 
         let pty = try PTY(command: "/bin/cat")
         let member = try system.createMember(name: "alice", pty: pty)
@@ -169,7 +162,6 @@ struct CommunitySystemTests {
         #expect(resolved === member)
 
         pty.close()
-        try await system.stop()
     }
 
     @Test("resolve non-existent local returns nil")
@@ -197,7 +189,6 @@ struct CommunitySystemTests {
     @Test("resignID unregisters actor and clears names")
     func resignIDClearsAll() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
 
         let pty = try PTY(command: "/bin/cat")
         let member = try system.createMember(name: "alice", pty: pty)
@@ -211,6 +202,5 @@ struct CommunitySystemTests {
         #expect(try system.resolve(id: memberID, as: Member.self) == nil)
 
         pty.close()
-        try await system.stop()
     }
 }

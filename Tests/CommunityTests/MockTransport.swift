@@ -1,16 +1,38 @@
 import Foundation
-import Discovery
+import Peer
+import ActorRuntime
+@testable import CommunityCore
 
-/// テスト用モックトランスポート
-final class MockTransport: Transport, @unchecked Sendable {
-    let transportID: String
-    let displayName: String
-
+/// テスト用モックDistributedTransport
+final class MockDistributedTransport: DistributedTransport, @unchecked Sendable {
     private let state = MockTransportState()
 
-    init(transportID: String = "mock", displayName: String = "Mock Transport") {
-        self.transportID = transportID
-        self.displayName = displayName
+    // MARK: - DistributedTransport Protocol
+
+    func sendInvocation(_ envelope: InvocationEnvelope) async throws -> ResponseEnvelope {
+        await state.recordSendInvocation()
+        // Return a void response by default
+        return ResponseEnvelope(callID: envelope.callID, result: .void)
+    }
+
+    var incomingInvocations: AsyncThrowingStream<InvocationEnvelope, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                await self.state.setInvocationContinuation(continuation)
+            }
+        }
+    }
+
+    func sendResponse(_ envelope: ResponseEnvelope) async throws {
+        await state.recordSendResponse()
+    }
+
+    func close() async throws {
+        await state.stop()
+    }
+
+    func start() async throws {
+        await state.start()
     }
 
     // MARK: - テストヘルパー
@@ -23,74 +45,28 @@ final class MockTransport: Transport, @unchecked Sendable {
         get async { await state.stopCount }
     }
 
-    var isActive: Bool {
-        get async { await state.isActive }
+    var sendInvocationCount: Int {
+        get async { await state.sendInvocationCount }
     }
 
-    func addDiscoveredPeer(_ peerID: PeerID) async {
-        await state.addDiscoveredPeer(peerID)
+    var sendResponseCount: Int {
+        get async { await state.sendResponseCount }
     }
 
-    func addResolvedPeer(_ peer: ResolvedPeer) async {
-        await state.addResolvedPeer(peer)
-    }
-
-    func setSendResult(_ result: Data) async {
-        await state.setSendResult(result)
-    }
-
-    // MARK: - Transport Protocol
-
-    func start() async throws {
-        await state.start()
-    }
-
-    func stop() async throws {
-        await state.stop()
-    }
-
-    var events: AsyncStream<TransportEvent> {
-        get async {
-            AsyncStream { continuation in
-                Task {
-                    await state.setEventContinuation(continuation)
-                }
-            }
-        }
-    }
-
-    func resolve(_ peerID: PeerID) async throws -> ResolvedPeer? {
-        await state.resolve(peerID)
-    }
-
-    func discover(timeout: Duration) -> AsyncThrowingStream<PeerID, Error> {
-        AsyncThrowingStream { [state] continuation in
-            Task {
-                for peerID in await state.discoveredPeers {
-                    continuation.yield(peerID)
-                }
-                continuation.finish()
-            }
-        }
-    }
-
-    func send(to peerID: PeerID, data: Data, timeout: Duration) async throws -> Data {
-        guard await state.isActive else {
-            throw Discovery.TransportError.notStarted
-        }
-        return await state.sendResult ?? Data()
+    /// Inject an incoming invocation for testing
+    func injectInvocation(_ envelope: InvocationEnvelope) async {
+        await state.injectInvocation(envelope)
     }
 }
 
 /// スレッドセーフな状態管理
-actor MockTransportState {
+private actor MockTransportState {
     var isActive: Bool = false
     var startCount: Int = 0
     var stopCount: Int = 0
-    var discoveredPeers: [PeerID] = []
-    var resolvedPeers: [PeerID: ResolvedPeer] = [:]
-    var sendResult: Data?
-    var eventContinuation: AsyncStream<TransportEvent>.Continuation?
+    var sendInvocationCount: Int = 0
+    var sendResponseCount: Int = 0
+    var invocationContinuation: AsyncThrowingStream<InvocationEnvelope, Error>.Continuation?
 
     func start() {
         isActive = true
@@ -100,25 +76,22 @@ actor MockTransportState {
     func stop() {
         isActive = false
         stopCount += 1
+        invocationContinuation?.finish()
     }
 
-    func addDiscoveredPeer(_ peerID: PeerID) {
-        discoveredPeers.append(peerID)
+    func recordSendInvocation() {
+        sendInvocationCount += 1
     }
 
-    func addResolvedPeer(_ peer: ResolvedPeer) {
-        resolvedPeers[peer.peerID] = peer
+    func recordSendResponse() {
+        sendResponseCount += 1
     }
 
-    func resolve(_ peerID: PeerID) -> ResolvedPeer? {
-        resolvedPeers[peerID]
+    func setInvocationContinuation(_ continuation: AsyncThrowingStream<InvocationEnvelope, Error>.Continuation) {
+        invocationContinuation = continuation
     }
 
-    func setSendResult(_ result: Data) {
-        sendResult = result
-    }
-
-    func setEventContinuation(_ continuation: AsyncStream<TransportEvent>.Continuation) {
-        eventContinuation = continuation
+    func injectInvocation(_ envelope: InvocationEnvelope) {
+        invocationContinuation?.yield(envelope)
     }
 }

@@ -1,5 +1,5 @@
 import Foundation
-import Discovery
+import Peer
 
 /// Actor identifier for the Community distributed actor system
 ///

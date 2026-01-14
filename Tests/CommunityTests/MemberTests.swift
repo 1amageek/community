@@ -1,7 +1,7 @@
 import Testing
 import Foundation
-import Discovery
-@testable import Community
+import Peer
+@testable import CommunityCore
 
 @Suite("Member Tests")
 struct MemberTests {
@@ -11,7 +11,6 @@ struct MemberTests {
     @Test("Init with PTY succeeds")
     func initWithPTY() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
 
         let pty = try PTY(command: "/bin/cat")
         let member = Member(name: "alice", pty: pty, actorSystem: system)
@@ -19,19 +18,15 @@ struct MemberTests {
         #expect(try await member.getName() == "alice")
 
         pty.close()
-        try await system.stop()
     }
 
     @Test("Init with command creates PTY")
     func initWithCommand() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
 
         let member = try Member(name: "bob", command: "/bin/cat", actorSystem: system)
 
         #expect(try await member.isRunning() == true)
-
-        try await system.stop()
     }
 
     // MARK: - distributed メソッドテスト
@@ -39,7 +34,6 @@ struct MemberTests {
     @Test("tell writes to PTY")
     func tellWritesToPTY() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
 
         let pty = try PTY(command: "/bin/cat")
         let member = try system.createMember(name: "alice", pty: pty, ownsPTY: false)
@@ -56,31 +50,24 @@ struct MemberTests {
         #expect(output == "hello")
 
         pty.close()
-        try await system.stop()
     }
 
     @Test("isRunning returns correct status")
     func isRunningReturnsCorrect() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
 
         let member = try system.createMember(name: "alice", command: "/bin/cat")
 
         #expect(try await member.isRunning() == true)
-
-        try await system.stop()
     }
 
     @Test("getName returns member name")
     func getNameReturnsMemberName() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
 
         let member = try system.createMember(name: "alice", command: "/bin/cat")
 
         #expect(try await member.getName() == "alice")
-
-        try await system.stop()
     }
 
     // MARK: - ファクトリメソッドテスト
@@ -88,7 +75,6 @@ struct MemberTests {
     @Test("createMember registers name")
     func createMemberRegistersName() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
 
         let pty = try PTY(command: "/bin/cat")
         let member = try system.createMember(name: "alice", pty: pty)
@@ -96,13 +82,11 @@ struct MemberTests {
         #expect(system.findLocalActorID(byName: "alice") == member.id)
 
         pty.close()
-        try await system.stop()
     }
 
     @Test("createMember throws if name taken")
     func createMemberThrowsIfNameTaken() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
 
         let pty1 = try PTY(command: "/bin/cat")
         _ = try system.createMember(name: "alice", pty: pty1)
@@ -121,7 +105,6 @@ struct MemberTests {
 
         pty1.close()
         pty2.close()
-        try await system.stop()
     }
 
     // MARK: - PTY所有権テスト
@@ -129,7 +112,6 @@ struct MemberTests {
     @Test("Member with ownsPTY=false doesn't close PTY on deinit")
     func memberNotOwnsPTYDoesntClose() async throws {
         let system = CommunitySystem(name: "test")
-        try await system.start(transports: [])
 
         let pty = try PTY(command: "/bin/cat")
 
@@ -144,6 +126,5 @@ struct MemberTests {
         try pty.writeLine("still open")
 
         pty.close()
-        try await system.stop()
     }
 }

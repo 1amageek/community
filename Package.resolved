@@ -1,5 +1,5 @@
 {
-  "originHash" : "69c24dc5c4d8f34f82295ea9f48aadfaac77c51fba5a93196357a9c4e2d123a5",
+  "originHash" : "73064cbbfd4296a494f59c365a62df8455960195eef3fd80e14fb6d9f322237b",
   "pins" : [
     {
       "identity" : "grpc-swift-2",
@@ -20,12 +20,12 @@
       }
     },
     {
-      "identity" : "grpc-swift-protobuf",
+      "identity" : "swift-actor-runtime",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/grpc/grpc-swift-protobuf.git",
+      "location" : "https://github.com/1amageek/swift-actor-runtime.git",
       "state" : {
-        "revision" : "a1aa982cb2a276c72b478433eb75a4ec6508a277",
-        "version" : "2.1.2"
+        "revision" : "d56d7f3d66386d56b4badb0fa9ee62faa462554e",
+        "version" : "0.3.1"
       }
     },
     {
@@ -123,8 +123,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log.git",
       "state" : {
-        "revision" : "bc386b95f2a16ccd0150a8235e7c69eab2b866ca",
-        "version" : "1.8.0"
+        "revision" : "7ee16e465622412764b0ff0c1301801dc71b8f61",
+        "version" : "1.9.0"
       }
     },
     {
@@ -182,12 +182,12 @@
       }
     },
     {
-      "identity" : "swift-protobuf",
+      "identity" : "swift-peer",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-protobuf.git",
+      "location" : "https://github.com/1amageek/swift-peer.git",
       "state" : {
-        "revision" : "c169a5744230951031770e27e475ff6eefe51f9d",
-        "version" : "1.33.3"
+        "branch" : "main",
+        "revision" : "750ca9c4935f51879af7fd18d1f235e92cadf817"
       }
     },
     {

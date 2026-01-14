@@ -1,4 +1,5 @@
 import ArgumentParser
+import CommunityCore
 import Foundation
 
 /// Leave command (placeholder - actual leave is handled by Ctrl+C in join)
