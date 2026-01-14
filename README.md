@@ -1,15 +1,25 @@
 # Community
 
-分散アクター型のメンバー管理システム。複数のターミナルセッション間でネットワークを通じて通信・コラボレーションを可能にします。
+[![Swift](https://img.shields.io/badge/Swift-6.2+-orange.svg)](https://swift.org)
+[![Platform](https://img.shields.io/badge/Platform-macOS%2026+-blue.svg)](https://developer.apple.com/macos/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Swift の Distributed Actors と gRPC を使用し、異なるマシン上のメンバー間でメッセージを送受信できます。
+A distributed actor-based member management system that enables communication and collaboration across multiple terminal sessions over the network.
 
-## 必要要件
+Built on Swift's Distributed Actors and gRPC, allowing members on different machines to send and receive messages.
 
-- macOS 26+
-- Swift 6.2+
+## Features
 
-## インストール
+| | Feature | Description |
+|---|---------|-------------|
+| 🌐 | **Distributed Actors** | Built on Swift's native distributed actor system for type-safe remote communication |
+| 🔌 | **gRPC Transport** | High-performance networking via gRPC protocol |
+| 💻 | **PTY Management** | Full pseudo-terminal support for interactive shell sessions |
+| 🔍 | **Member Discovery** | Automatic discovery and listing of members across the network |
+| 📨 | **Message Passing** | Send messages directly to any member's terminal |
+| ⚡ | **Async/Await** | Modern Swift concurrency throughout |
+
+## Installation
 
 ```bash
 git clone https://github.com/1amageek/community.git
@@ -17,66 +27,76 @@ cd community
 swift build
 ```
 
-## 使い方
-
-### コミュニティに参加する
+## Quick Start
 
 ```bash
-# デフォルトのシェル（/bin/bash）で参加
+# Terminal 1: Join as alice
+swift run mm join -n alice -p 50051
+
+# Terminal 2: Join as bob
+swift run mm join -n bob -p 50052
+
+# Terminal 3: Send message from anywhere
+swift run mm tell alice "Hello from the network!" -p 50051
+```
+
+## Usage
+
+### Join the Community
+
+```bash
+# Join with default shell (/bin/bash)
 swift run mm join
 
-# カスタムコマンドで参加
+# Join with a custom command
 swift run mm join /bin/zsh
 
-# 名前とポートを指定
+# Specify name and port
 swift run mm join /bin/bash -n alice -p 50051
 ```
 
-参加すると PTY（擬似端末）が起動し、コマンドが実行されます。終了するには `Ctrl+C` を押してください。
+This starts a PTY (pseudo-terminal) running your command. Press `Ctrl+C` to exit.
 
-### メンバーにメッセージを送る
+### Send a Message to a Member
 
 ```bash
-# ローカルホストのメンバーにメッセージを送信
+# Send message to a member on localhost
 swift run mm tell alice "Hello, Alice!"
 
-# リモートホストのメンバーにメッセージを送信
+# Send message to a member on a remote host
 swift run mm tell alice "Hello!" -h 192.168.1.100 -p 50051
 ```
 
-メッセージは対象メンバーの PTY に入力として送信されます。
+Messages are sent as input to the target member's PTY.
 
-### メンバー一覧を表示する
+### List Members
 
 ```bash
-# ローカルホストのメンバーを表示
+# List members on localhost
 swift run mm list
 
-# リモートホストのメンバーを表示
+# List members on a remote host
 swift run mm list -h 192.168.1.100 -p 50051
-
-# デフォルトコマンド（listと同じ）
-swift run mm -h 192.168.1.100
 ```
 
-## コマンド一覧
+## Commands
 
-| コマンド | 説明 |
-|---------|------|
-| `mm join [command]` | コミュニティに参加 |
-| `mm tell <name> <message>` | メンバーにメッセージを送信 |
-| `mm list` | メンバー一覧を表示 |
-| `mm leave` | コミュニティから離脱（Ctrl+Cを使用） |
+| Command | Description |
+|---------|-------------|
+| `mm join [command]` | Join the community |
+| `mm tell <name> <message>` | Send a message to a member |
+| `mm list` | List all members |
+| `mm leave` | Leave the community (use Ctrl+C) |
 
-### オプション
+### Options
 
-| オプション | 説明 | デフォルト |
-|-----------|------|-----------|
-| `-n, --name` | メンバー名 | TTY名またはホスト名 |
-| `-h, --host` | 接続先ホスト | 127.0.0.1 |
-| `-p, --port` | 接続先ポート | 50051 |
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-n, --name` | Member name | TTY name or hostname |
+| `-h, --host` | Target host | 127.0.0.1 |
+| `-p, --port` | Target port | 50051 |
 
-## アーキテクチャ
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -97,18 +117,20 @@ swift run mm -h 192.168.1.100
 └─────────────────────────────────────────────────────────┘
 ```
 
-### コンポーネント
+### Components
 
-- **CommunitySystem**: Distributed Actor System の実装。ローカル・リモートアクターの管理
-- **Member**: 各参加者を表す分散アクター。PTY を所有しメッセージを受信
-- **SystemActor**: メンバーの検索・一覧取得を提供するシステムアクター
-- **PTY**: POSIX 擬似端末の管理。プロセスの入出力を制御
+| | Component | Description |
+|---|-----------|-------------|
+| 🎭 | **CommunitySystem** | Distributed Actor System implementation. Manages local and remote actors |
+| 👤 | **Member** | Distributed actor representing each participant. Owns a PTY and receives messages |
+| 🔎 | **SystemActor** | System actor providing member discovery and listing |
+| 🖥️ | **PTY** | POSIX pseudo-terminal management. Controls process I/O |
 
-## 依存関係
+## Dependencies
 
-- [swift-peer](https://github.com/1amageek/swift-peer) - gRPC トランスポートと分散システム基盤
-- [swift-argument-parser](https://github.com/apple/swift-argument-parser) - CLI パーサー
+- [swift-peer](https://github.com/1amageek/swift-peer) - gRPC transport and distributed system infrastructure
+- [swift-argument-parser](https://github.com/apple/swift-argument-parser) - CLI parser
 
-## ライセンス
+## License
 
 MIT License
