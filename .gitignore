@@ -1,0 +1,52 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+
+# CocoaPods (if used)
+Pods/
+
+# Carthage (if used)
+Carthage/Build/
+Carthage/Checkouts/
+
+# Generated files
+*.generated.swift
+
+# Secrets and credentials
+.netrc
+*.pem
+*.p12
+*.key
+
+# IDE
+*.idea/
+*.vscode/
+
+# Test artifacts
+*.xcresult
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Build artifacts
+*.o
+*.a
+*.dylib
