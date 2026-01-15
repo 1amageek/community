@@ -22,7 +22,7 @@ public enum PTYError: Error, Sendable, Equatable {
     case alreadyClosed
 }
 
-public final class PTY: @unchecked Sendable {
+public final class PTY: TTY, @unchecked Sendable {
     private let masterFD: Int32
     private let childPID: pid_t
     private let childPGID: pid_t

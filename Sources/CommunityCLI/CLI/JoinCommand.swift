@@ -92,7 +92,7 @@ public struct JoinCommand: AsyncParsableCommand {
         //    so that exchangeMemberInfo can see this member
         let actualCommand = command ?? ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let pty = try PTY(command: actualCommand)
-        _ = try system.createMember(name: memberName, pty: pty, ownsPTY: false)
+        _ = try system.createMember(name: memberName, tty: pty, ownsTTY: false)
 
         // 4. If we're on auto-assigned port (because default was busy),
         //    try to connect to the existing server on default port
