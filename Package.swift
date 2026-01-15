@@ -10,7 +10,7 @@ let package = Package(
         .library(name: "CommunityCore", targets: ["CommunityCore"])
     ],
     dependencies: [
-        .package(path: "../swift-peer"),
+        .package(url: "https://github.com/1amageek/swift-peer", branch: "main"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.6.0"),
     ],
     targets: [
