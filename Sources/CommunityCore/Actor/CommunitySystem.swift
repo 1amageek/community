@@ -348,6 +348,25 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
         return members
     }
 
+    /// Find a member by name (searches local + remote)
+    /// - Parameter name: The member name to search for
+    /// - Returns: MemberInfo if found, nil otherwise
+    public func findMember(byName name: String) -> MemberInfo? {
+        // First check local
+        if let actorID = nameRegistry.find(name: name) {
+            return MemberInfo(
+                name: name,
+                actorID: actorID,
+                peerID: localPeerInfo.peerID,
+                transport: "local"
+            )
+        }
+        // Then check remote
+        return state.withLock { s in
+            s.remoteMembers.values.first { $0.name == name }
+        }
+    }
+
     // MARK: - DistributedActorSystem Protocol
 
     public func resolve<Act>(id: ActorID, as actorType: Act.Type) throws -> Act?

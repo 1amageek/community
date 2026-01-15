@@ -50,17 +50,29 @@ public struct TellCommand: AsyncParsableCommand {
         print("Looking for member '\(name)'...")
 
         // Find the member
-        guard let memberID = try await systemActor.findMember(name: name) else {
+        guard let memberInfo = try await systemActor.findMember(name: name) else {
             print("Member '\(name)' not found")
             try await system.stop()
             throw ExitCode.failure
         }
 
-        print("Found member: \(memberID)")
+        print("Found member: \(memberInfo.name) at \(memberInfo.peerID.value)")
+
+        // If the member is on a different peer (different address), connect to that peer first
+        if memberInfo.peerID.address != targetPeerID.address {
+            print("Connecting to member's peer \(memberInfo.peerID.value)...")
+            do {
+                try await system.connectToPeer(memberInfo.peerID)
+            } catch {
+                print("Error: Failed to connect to member's peer: \(error)")
+                try await system.stop()
+                throw ExitCode.failure
+            }
+        }
 
         // Resolve and call the member
         do {
-            let member = try Member.resolve(id: memberID, using: system)
+            let member = try Member.resolve(id: memberInfo.actorID, using: system)
             try await member.tell(message)
             print("Sent to '\(name)': \(message)")
         } catch {

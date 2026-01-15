@@ -1,5 +1,5 @@
 {
-  "originHash" : "aa7e494d26f8b4bb5f8e1aeb6a2f287c5e2416b8337623663c6b4567fe6c055f",
+  "originHash" : "4360d6f441a8d645a4ef872e1676ddb83311e2048a66bccad8f775c354213fee",
   "pins" : [
     {
       "identity" : "grpc-swift-2",
@@ -179,6 +179,15 @@
       "state" : {
         "revision" : "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
         "version" : "1.1.1"
+      }
+    },
+    {
+      "identity" : "swift-peer",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/1amageek/swift-peer",
+      "state" : {
+        "branch" : "main",
+        "revision" : "5870bcd3855fa0c1dc6becaeac61e29c7f9d6b22"
       }
     },
     {

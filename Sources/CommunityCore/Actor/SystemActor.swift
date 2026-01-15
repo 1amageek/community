@@ -23,11 +23,11 @@ public distributed actor SystemActor {
 
     // MARK: - Distributed Methods
 
-    /// Find a member by name
+    /// Find a member by name (searches local + remote)
     /// - Parameter name: The member's name
-    /// - Returns: The member's ActorID if found, nil otherwise
-    public distributed func findMember(name: String) -> CommunityActorID? {
-        system.findLocalActorID(byName: name)
+    /// - Returns: The member's info if found, nil otherwise
+    public distributed func findMember(name: String) -> MemberInfo? {
+        system.findMember(byName: name)
     }
 
     /// List all members known by this peer (local + remote)

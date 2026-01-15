@@ -30,10 +30,57 @@ public struct ListCommand: AsyncParsableCommand {
         try await system.start()  // Creates SystemActor for bidirectional queries
 
         print("Connecting to \(host):\(port)...")
-        do {
-            try await system.connectToPeer(targetPeerID)
-        } catch {
-            print("Error: Failed to connect to \(host):\(port): \(error)")
+
+        // Track connection result
+        actor ConnectionState {
+            var result: Result<Void, Error>?
+
+            func setResult(_ result: Result<Void, Error>) {
+                if self.result == nil {
+                    self.result = result
+                }
+            }
+
+            func getResult() -> Result<Void, Error>? {
+                return result
+            }
+        }
+
+        let state = ConnectionState()
+
+        // Start connection in background
+        Task.detached {
+            do {
+                try await system.connectToPeer(targetPeerID)
+                await state.setResult(.success(()))
+            } catch {
+                await state.setResult(.failure(error))
+            }
+        }
+
+        // Poll with timeout
+        let timeoutSeconds = 5
+        var connectionSucceeded = false
+        pollLoop: for _ in 0..<(timeoutSeconds * 10) {
+            if let result = await state.getResult() {
+                switch result {
+                case .success:
+                    connectionSucceeded = true
+                    break pollLoop
+                case .failure(let error):
+                    print("Error: Failed to connect to \(host):\(port)")
+                    print("  \(error)")
+                    try await system.stop()
+                    throw ExitCode.failure
+                }
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        // Check if we timed out
+        if !connectionSucceeded {
+            print("Error: Failed to connect to \(host):\(port)")
+            print("  Connection timed out (no server running?)")
             try await system.stop()
             throw ExitCode.failure
         }
