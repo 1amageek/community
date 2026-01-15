@@ -1,6 +1,7 @@
 import ArgumentParser
 import CommunityCore
 import Foundation
+import PeerNode
 
 /// Send a message to a member
 public struct TellCommand: AsyncParsableCommand {
@@ -15,33 +16,36 @@ public struct TellCommand: AsyncParsableCommand {
     @Argument(help: "Message to send")
     var message: String
 
-    @Option(name: .shortAndLong, help: "Target peer host")
+    @Option(name: .long, help: "Target host (default: 127.0.0.1)")
     var host: String = "127.0.0.1"
 
-    @Option(name: .shortAndLong, help: "Target peer port")
+    @Option(name: .shortAndLong, help: "Target port (default: 50051)")
     var port: Int = 50051
 
     public init() {}
 
     public func run() async throws {
-        // Create the actor system
-        let system = CommunitySystem()
+        // Create PeerID for the target
+        let targetPeerID = PeerID(name: "target", host: host, port: port)
 
-        // Create and start gRPC transport in client mode
-        let transport = GRPCTransport(
-            configuration: .client(host: host, port: port)
-        )
+        // Create a temporary node for the client
+        let node = PeerNode(name: "tell-client", host: "127.0.0.1", port: 0)
+        try await node.start()
+
+        let system = CommunitySystem(name: "tell-client", node: node)
+        try await system.start()  // Creates SystemActor for bidirectional queries
 
         print("Connecting to \(host):\(port)...")
-        try await transport.open()
-
-        // Start the system
-        try await system.start(transport: transport)
-        print("Connected.")
+        do {
+            try await system.connectToPeer(targetPeerID)
+        } catch {
+            print("Error: Failed to connect to \(host):\(port): \(error)")
+            try await system.stop()
+            throw ExitCode.failure
+        }
 
         // Get remote system actor to find the member
-        let remotePeerID = PeerID("\(host):\(port)")
-        let systemActor = try system.remoteSystemActor(peerID: remotePeerID)
+        let systemActor = try system.remoteSystemActor(peerID: targetPeerID)
 
         print("Looking for member '\(name)'...")
 

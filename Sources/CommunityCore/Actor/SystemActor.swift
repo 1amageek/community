@@ -30,10 +30,10 @@ public distributed actor SystemActor {
         system.findLocalActorID(byName: name)
     }
 
-    /// List all members on this peer
+    /// List all members known by this peer (local + remote)
     /// - Returns: Array of member information
     public distributed func listMembers() -> [MemberInfo] {
-        system.localMembers()
+        system.allMembers()
     }
 }
 

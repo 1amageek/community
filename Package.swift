@@ -10,15 +10,14 @@ let package = Package(
         .library(name: "CommunityCore", targets: ["CommunityCore"])
     ],
     dependencies: [
-        .package(url: "https://github.com/1amageek/swift-peer.git", branch: "main"),
+        .package(path: "../swift-peer"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.6.0"),
     ],
     targets: [
         .target(
             name: "CommunityCore",
             dependencies: [
-                .product(name: "Peer", package: "swift-peer"),
-                .product(name: "PeerGRPC", package: "swift-peer"),
+                .product(name: "PeerNode", package: "swift-peer"),
             ]
         ),
         .executableTarget(
@@ -32,8 +31,7 @@ let package = Package(
             name: "CommunityTests",
             dependencies: [
                 "CommunityCore",
-                .product(name: "Peer", package: "swift-peer"),
-                .product(name: "PeerGRPC", package: "swift-peer"),
+                .product(name: "PeerNode", package: "swift-peer"),
             ]
         )
     ]

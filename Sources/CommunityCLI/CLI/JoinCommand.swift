@@ -2,6 +2,10 @@ import ArgumentParser
 import CommunityCore
 import Foundation
 import Synchronization
+import PeerNode
+
+/// Default port for community server
+private let defaultPort = 50051
 
 /// Join the community as a member with a PTY
 public struct JoinCommand: AsyncParsableCommand {
@@ -16,8 +20,17 @@ public struct JoinCommand: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Member name (defaults to terminal name)")
     var name: String?
 
-    @Option(name: .shortAndLong, help: "Port to listen on")
-    var port: Int = 50051
+    @Option(name: .long, help: "Host address to bind (default: 127.0.0.1)")
+    var host: String = "127.0.0.1"
+
+    @Option(name: .shortAndLong, help: "Port to listen on (default: \(defaultPort))")
+    var port: Int = defaultPort
+
+    @Option(name: .long, help: "Peer to connect to (format: name@host:port)")
+    var peer: [String] = []
+
+    @Flag(name: .long, help: "Disable mDNS advertising and discovery")
+    var noDiscovery: Bool = false
 
     public init() {}
 
@@ -42,22 +55,85 @@ public struct JoinCommand: AsyncParsableCommand {
     public func run() async throws {
         let memberName = getMemberName()
 
-        // Create the actor system
-        let system = CommunitySystem(name: memberName)
+        // 1. Create and start PeerNode (always start our own server)
+        var node = PeerNode(name: memberName, host: host, port: port)
+        var actualPort = port
 
-        // Create and start gRPC transport
-        let transport = GRPCTransport(
-            configuration: .server(port: port)
-        )
-        try await transport.open()
+        do {
+            try await node.start()
+        } catch let error as PeerNodeError {
+            switch error {
+            case .portUnavailable(let p):
+                if p == defaultPort {
+                    // Default port is busy - try auto-assign
+                    node = PeerNode(name: memberName, host: host, port: 0)
+                    try await node.start()
+                    actualPort = 0
+                } else {
+                    print("Error: Port \(p) is already in use")
+                    throw ExitCode.failure
+                }
+            default:
+                print("Error: \(error.localizedDescription)")
+                throw ExitCode.failure
+            }
+        }
 
-        // Start the system with the transport
-        try await system.start(transport: transport)
+        guard let boundPort = node.boundPort else {
+            print("Error: Failed to get bound port")
+            throw ExitCode.failure
+        }
 
-        // Create system actor for remote queries
-        _ = system.createSystemActor()
+        // 2. Create the CommunitySystem with the node
+        let system = CommunitySystem(name: memberName, node: node)
+        try await system.start()
 
-        print("Joined as '\(memberName)' running '\(command)' on port \(port)")
+        // 3. Create PTY and register member BEFORE connecting to peers
+        //    so that exchangeMemberInfo can see this member
+        let pty = try PTY(command: command)
+        _ = try system.createMember(name: memberName, pty: pty, ownsPTY: false)
+
+        // 4. If we're on auto-assigned port (because default was busy),
+        //    try to connect to the existing server on default port
+        if actualPort == 0 && port == defaultPort {
+            let existingServer = PeerID(name: "existing", host: "127.0.0.1", port: defaultPort)
+            do {
+                try await system.connectToPeer(existingServer)
+            } catch {
+                // No existing server - that's fine, we're the first one
+            }
+        }
+
+        // 5. Connect to specified peers
+        for peerString in peer {
+            guard let peerID = PeerID(peerString) else {
+                print("Warning: Invalid peer format '\(peerString)', expected name@host:port")
+                continue
+            }
+            do {
+                try await system.connectToPeer(peerID)
+                print("Connected to \(peerID.name)")
+            } catch {
+                print("Warning: Failed to connect to \(peerString): \(error)")
+            }
+        }
+
+        // 6. mDNS advertising and discovery (temporarily disabled due to sandbox issues)
+        // TODO: Re-enable when entitlements are configured
+        // if !noDiscovery {
+        //     try? await node.advertise()
+        //     Task {
+        //         for try await peer in await node.discover(timeout: .seconds(5)) {
+        //             guard peer.peerID != node.localPeerID else { continue }
+        //             try? await system.connectToPeer(peer.peerID)
+        //         }
+        //     }
+        // }
+
+        print("Joined as '\(memberName)' at \(host):\(boundPort)")
+        if !peer.isEmpty {
+            print("Connected to: \(peer.joined(separator: ", "))")
+        }
         print("Press Ctrl+C to leave")
         print("")
 
@@ -75,12 +151,7 @@ public struct JoinCommand: AsyncParsableCommand {
             tcsetattr(stdinFD, TCSANOW, &originalTermios)
         }
 
-        // Create PTY
-        let pty = try PTY(command: command)
-
-        // Create member with the PTY (for remote `tell` access)
-        // Member does NOT own the PTY since we manage I/O here
-        _ = try system.createMember(name: memberName, pty: pty, ownsPTY: false)
+        // PTY and Member were already created above (before peer connections)
 
         // Setup signal handling
         signal(SIGINT, SIG_IGN)

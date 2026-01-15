@@ -1,14 +1,15 @@
 import Foundation
 import Distributed
 import Synchronization
-import Peer
-import PeerGRPC
-import ActorRuntime
+import PeerNode
 
 /// Distributed actor system for the Community project
 ///
 /// Bridges swift-actor-runtime with swift-peer to enable
 /// distributed actor communication across networks.
+///
+/// CommunitySystem uses PeerNode to manage peer connections,
+/// routing messages to the appropriate transport based on ActorID's peerID.
 public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable {
     public typealias ActorID = CommunityActorID
     public typealias InvocationEncoder = CodableInvocationEncoder
@@ -24,30 +25,41 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
     /// Name registry: name → ActorID mapping
     private let nameRegistry: NameRegistry
 
-    /// Transport for network communication
-    private var transport: (any DistributedTransport)?
-
     /// Local peer information
     public let localPeerInfo: PeerInfo
 
-    /// Thread-safe lifecycle state
-    private struct LifecycleState {
+    /// PeerNode for managing connections
+    private let node: PeerNode
+
+    // MARK: - State Management
+
+    /// Thread-safe state for peer management
+    private struct State: ~Copyable {
         var isStarted: Bool = false
-        var invocationTask: Task<Void, Never>?
+        var responseRoutes: [String: String] = [:]  // callID → senderPeerID.value
+        var messageTasks: [Task<Void, Never>] = []
+        var acceptTask: Task<Void, Never>?
+        var remoteMembers: [String: MemberInfo] = [:]  // key: actorID.id -> MemberInfo
     }
-    private let lifecycleState = Mutex(LifecycleState())
+    private let state = Mutex(State())
+
+    /// Pending remote calls waiting for responses
+    private let pendingCalls = Mutex<[String: CheckedContinuation<ResponseEnvelope, Error>]>([:])
 
     // MARK: - Initialization
 
-    /// Create a new CommunitySystem
-    /// - Parameter name: The name for this peer (defaults to hostname)
-    public init(name: String? = nil) {
-        let peerName = name ?? ProcessInfo.processInfo.hostName
+    /// Create a new CommunitySystem with a PeerNode
+    ///
+    /// - Parameters:
+    ///   - name: Display name for this peer
+    ///   - node: The PeerNode managing connections
+    public init(name: String, node: PeerNode) {
+        self.node = node
 
-        // Initialize local peer info
+        // Initialize local peer info from node
         self.localPeerInfo = PeerInfo(
-            peerID: PeerID(peerName),
-            displayName: peerName
+            peerID: node.localPeerID,
+            displayName: name
         )
 
         // Initialize registries
@@ -57,70 +69,182 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
 
     // MARK: - Lifecycle
 
-    /// Start the system with the given transport
-    public func start(transport: any DistributedTransport) async throws {
+    /// Start the system
+    public func start() async throws {
         // Check and set started state atomically
-        let alreadyStarted = lifecycleState.withLock { state -> Bool in
-            if state.isStarted {
+        let alreadyStarted = state.withLock { s -> Bool in
+            if s.isStarted {
                 return true
             }
-            state.isStarted = true
+            s.isStarted = true
             return false
         }
         guard !alreadyStarted else { return }
 
-        self.transport = transport
+        // Create SystemActor immediately so it's available for member queries
+        _ = createSystemActor()
 
-        // Start processing incoming invocations
-        let task = Task { [weak self] in
-            guard let self = self else { return }
-            await self.processIncomingInvocations()
+        // Start accepting connections
+        let acceptTask: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            await self.acceptConnections()
         }
 
-        lifecycleState.withLock { state in
-            state.invocationTask = task
+        state.withLock { s in
+            s.acceptTask = acceptTask
         }
     }
 
     /// Stop the system
     public func stop() async throws {
-        // Check and clear started state atomically
-        let (wasStarted, task) = lifecycleState.withLock { state -> (Bool, Task<Void, Never>?) in
-            if !state.isStarted {
-                return (false, nil)
+        // Get state and clear atomically
+        let (wasStarted, tasks, acceptTask) = state.withLock { s -> (Bool, [Task<Void, Never>], Task<Void, Never>?) in
+            if !s.isStarted {
+                return (false, [], nil)
             }
-            state.isStarted = false
-            let task = state.invocationTask
-            state.invocationTask = nil
-            return (true, task)
+            s.isStarted = false
+            let tasks = s.messageTasks
+            let acceptTask = s.acceptTask
+            s.responseRoutes.removeAll()
+            s.messageTasks.removeAll()
+            s.acceptTask = nil
+            return (true, tasks, acceptTask)
         }
         guard wasStarted else { return }
 
-        // Cancel the invocation processing task
-        task?.cancel()
+        // Cancel all tasks
+        acceptTask?.cancel()
+        for task in tasks {
+            task.cancel()
+        }
 
-        // Close the transport
-        try await transport?.close()
-        transport = nil
+        // Cancel all pending calls
+        let pending = pendingCalls.withLock { pending in
+            let copy = pending
+            pending.removeAll()
+            return copy
+        }
+        for (_, continuation) in pending {
+            continuation.resume(throwing: CommunityError.systemStopped)
+        }
+
+        // Stop the node
+        await node.stop()
 
         registry.clear()
         nameRegistry.clear()
     }
 
-    // MARK: - Incoming Invocation Processing
+    // MARK: - Peer Management
 
-    private func processIncomingInvocations() async {
-        guard let transport = self.transport else { return }
+    /// Connect to a peer
+    public func connectToPeer(_ peerID: PeerID) async throws {
+        try await node.connect(to: peerID)
 
+        // Start processing messages from this peer
+        guard let transport = node.transport(for: peerID) else {
+            return
+        }
+
+        let task: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            await self.processMessages(from: transport, peerID: peerID)
+        }
+
+        state.withLock { s in
+            s.messageTasks.append(task)
+        }
+
+        // Exchange member information with the connected peer
+        await exchangeMemberInfo(with: peerID)
+    }
+
+    /// Exchange member information with a connected peer
+    private func exchangeMemberInfo(with peerID: PeerID) async {
         do {
-            for try await envelope in transport.incomingInvocations {
-                let response = await handleInvocation(envelope)
-                try await transport.sendResponse(response)
+            let remoteSystemActor = try remoteSystemActor(peerID: peerID)
+            let remoteMembers = try await remoteSystemActor.listMembers()
+
+            // Store remote members (skip our own members)
+            state.withLock { s in
+                for member in remoteMembers {
+                    // Don't store our own members
+                    if member.peerID != localPeerInfo.peerID {
+                        s.remoteMembers[member.actorID.id] = member
+                    }
+                }
             }
         } catch {
-            // Stream ended or error occurred
+            // Failed to exchange member info - not critical
         }
     }
+
+    /// Get all connected peer IDs
+    public func connectedPeers() -> [PeerID] {
+        node.connectedPeers
+    }
+
+    // MARK: - Connection Handling
+
+    private func acceptConnections() async {
+        for await connection in node.incomingConnections {
+            let peerID = connection.peerID
+
+            // Start processing messages from this connection
+            let task: Task<Void, Never> = Task { [weak self] in
+                guard let self else { return }
+                await self.processMessages(from: connection.transport, peerID: peerID)
+            }
+
+            state.withLock { s in
+                s.messageTasks.append(task)
+            }
+
+            // Exchange member information with the connected peer
+            Task { [weak self] in
+                guard let self else { return }
+                await self.exchangeMemberInfo(with: peerID)
+            }
+        }
+    }
+
+    private func processMessages(from transport: any DistributedTransport, peerID: PeerID) async {
+        do {
+            for try await envelope in transport.messages {
+                switch envelope {
+                case .invocation(let invocation):
+                    // Track sender for response routing
+                    state.withLock { s in
+                        s.responseRoutes[invocation.callID] = peerID.value
+                    }
+
+                    // Handle the invocation
+                    let response = await handleInvocation(invocation)
+
+                    // Send response back via the same transport
+                    try await transport.send(.response(response))
+
+                case .response(let response):
+                    // Handle response to a pending call
+                    handleResponse(response)
+                }
+            }
+        } catch {
+            // Message stream error
+        }
+
+        // Cancel all pending calls - connection is gone
+        let pending = pendingCalls.withLock { pending in
+            let copy = pending
+            pending.removeAll()
+            return copy
+        }
+        for (_, continuation) in pending {
+            continuation.resume(throwing: CommunityError.connectionFailed("Peer disconnected: \(peerID.name)"))
+        }
+    }
+
+    // MARK: - Message Processing
 
     private func handleInvocation(_ envelope: InvocationEnvelope) async -> ResponseEnvelope {
         // Find the target actor by UUID
@@ -173,6 +297,14 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
         }
     }
 
+    private func handleResponse(_ response: ResponseEnvelope) {
+        // Find and resume the pending call
+        let continuation = pendingCalls.withLock { pending in
+            pending.removeValue(forKey: response.callID)
+        }
+        continuation?.resume(returning: response)
+    }
+
     // MARK: - Name Registry
 
     /// Register a name alias for an actor
@@ -205,6 +337,15 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
                 transport: "local"
             )
         }
+    }
+
+    /// Get all members (local + remote)
+    public func allMembers() -> [MemberInfo] {
+        let local = localMembers()
+        let remote = state.withLock { Array($0.remoteMembers.values) }
+        var members = local
+        members.append(contentsOf: remote)
+        return members
     }
 
     // MARK: - DistributedActorSystem Protocol
@@ -264,7 +405,7 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
             )
         }
 
-        // Remote call via transport
+        // Remote call via routes
         return try await executeRemotely(
             on: actor,
             target: target,
@@ -290,7 +431,7 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
             return
         }
 
-        // Remote call via transport
+        // Remote call via routes
         try await executeRemotelyVoid(
             on: actor,
             target: target,
@@ -395,8 +536,9 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
         returning: Res.Type
     ) async throws -> Res
     where Act: DistributedActor, Act.ID == ActorID, Res: Codable {
-        guard let transport = self.transport else {
-            throw CommunityError.systemNotStarted
+        // Find transport for target peer
+        guard let transport = node.transport(for: actor.id.peerID) else {
+            throw CommunityError.peerNotFound(actor.id.peerID.value)
         }
 
         invocation.recordTarget(target)
@@ -406,7 +548,26 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
             senderID: localPeerInfo.peerID.value
         )
 
-        let response = try await transport.sendInvocation(envelope)
+        // Send invocation and wait for response
+        let response = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ResponseEnvelope, Error>) in
+            // Register pending call
+            pendingCalls.withLock { pending in
+                pending[envelope.callID] = continuation
+            }
+
+            // Send the invocation
+            Task {
+                do {
+                    try await transport.send(.invocation(envelope))
+                } catch {
+                    // If sending fails, remove pending and resume with error
+                    let cont = self.pendingCalls.withLock { pending in
+                        pending.removeValue(forKey: envelope.callID)
+                    }
+                    cont?.resume(throwing: error)
+                }
+            }
+        }
 
         switch response.result {
         case .success(let resultData):
@@ -424,8 +585,9 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
         invocation: inout InvocationEncoder
     ) async throws
     where Act: DistributedActor, Act.ID == ActorID {
-        guard let transport = self.transport else {
-            throw CommunityError.systemNotStarted
+        // Find transport for target peer
+        guard let transport = node.transport(for: actor.id.peerID) else {
+            throw CommunityError.peerNotFound(actor.id.peerID.value)
         }
 
         invocation.recordTarget(target)
@@ -435,7 +597,26 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
             senderID: localPeerInfo.peerID.value
         )
 
-        let response = try await transport.sendInvocation(envelope)
+        // Send invocation and wait for response
+        let response = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ResponseEnvelope, Error>) in
+            // Register pending call
+            pendingCalls.withLock { pending in
+                pending[envelope.callID] = continuation
+            }
+
+            // Send the invocation
+            Task {
+                do {
+                    try await transport.send(.invocation(envelope))
+                } catch {
+                    // If sending fails, remove pending and resume with error
+                    let cont = self.pendingCalls.withLock { pending in
+                        pending.removeValue(forKey: envelope.callID)
+                    }
+                    cont?.resume(throwing: error)
+                }
+            }
+        }
 
         if case .failure(let error) = response.result {
             throw error

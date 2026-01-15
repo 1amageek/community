@@ -1,5 +1,5 @@
 {
-  "originHash" : "73064cbbfd4296a494f59c365a62df8455960195eef3fd80e14fb6d9f322237b",
+  "originHash" : "aa7e494d26f8b4bb5f8e1aeb6a2f287c5e2416b8337623663c6b4567fe6c055f",
   "pins" : [
     {
       "identity" : "grpc-swift-2",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1amageek/swift-actor-runtime.git",
       "state" : {
-        "revision" : "d56d7f3d66386d56b4badb0fa9ee62faa462554e",
-        "version" : "0.3.1"
+        "revision" : "e2fb5c8b660f368f99dfc75f27c28d413f293418",
+        "version" : "0.4.0"
       }
     },
     {
@@ -179,15 +179,6 @@
       "state" : {
         "revision" : "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
         "version" : "1.1.1"
-      }
-    },
-    {
-      "identity" : "swift-peer",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/1amageek/swift-peer.git",
-      "state" : {
-        "branch" : "main",
-        "revision" : "750ca9c4935f51879af7fd18d1f235e92cadf817"
       }
     },
     {
