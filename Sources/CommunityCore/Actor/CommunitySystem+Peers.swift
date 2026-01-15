@@ -50,6 +50,15 @@ extension CommunitySystem {
     public func connectedPeers() -> [PeerID] {
         node.connectedPeers
     }
+
+    /// Disconnect from a specific peer
+    public func disconnectPeer(_ peerID: PeerID) async {
+        // Disconnect from the peer
+        await node.disconnect(from: peerID)
+
+        // Clean up remote members from this peer
+        cleanupDisconnectedPeer(peerID)
+    }
 }
 
 // MARK: - Connection Handling

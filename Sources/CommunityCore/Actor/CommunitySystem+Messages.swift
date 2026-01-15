@@ -30,6 +30,9 @@ extension CommunitySystem {
             // Message stream error
         }
 
+        // Clean up on disconnection
+        cleanupDisconnectedPeer(peerID)
+
         // Cancel all pending calls - connection is gone
         let pending = pendingCalls.withLock { pending in
             let copy = pending
@@ -39,6 +42,19 @@ extension CommunitySystem {
         for (_, continuation) in pending {
             continuation.resume(throwing: CommunityError.connectionFailed("Peer disconnected: \(peerID.name)"))
         }
+    }
+
+    /// Remove all remote members from a disconnected peer
+    func cleanupDisconnectedPeer(_ peerID: PeerID) {
+        state.withLock { s in
+            // Remove all remote members that belong to the disconnected peer
+            s.remoteMembers = s.remoteMembers.filter { _, member in
+                member.peerID != peerID
+            }
+        }
+
+        // Also unregister from name registry
+        nameRegistry.unregisterByPeerID(peerID)
     }
 
     private func handleInvocation(_ envelope: InvocationEnvelope) async -> ResponseEnvelope {

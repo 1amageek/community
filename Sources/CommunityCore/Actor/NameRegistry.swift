@@ -38,6 +38,12 @@ final class NameRegistry: Sendable {
         }
     }
 
+    func unregisterByPeerID(_ peerID: PeerID) {
+        mutex.withLock { state in
+            state.names = state.names.filter { $0.value.peerID != peerID }
+        }
+    }
+
     func allNames() -> [String] {
         mutex.withLock { state in
             Array(state.names.keys)

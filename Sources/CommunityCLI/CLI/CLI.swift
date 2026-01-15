@@ -18,7 +18,8 @@ public struct MM: AsyncParsableCommand {
             JoinCommand.self,
             TellCommand.self,
             LeaveCommand.self,
-            ListCommand.self
+            ListCommand.self,
+            KillCommand.self
         ],
         defaultSubcommand: ListCommand.self
     )
