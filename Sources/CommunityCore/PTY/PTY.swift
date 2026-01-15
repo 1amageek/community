@@ -31,6 +31,9 @@ public final class PTY: @unchecked Sendable {
     private var isClosed = false
     private let lock = NSLock()
 
+    /// Expose master file descriptor for direct I/O
+    public var masterFileDescriptor: Int32 { masterFD }
+
     public init(command: String) throws {
         // Create pipe for communication
         var masterPty: Int32 = -1
@@ -67,8 +70,10 @@ public final class PTY: @unchecked Sendable {
         // Setup spawn attributes
         var attr: posix_spawnattr_t?
         posix_spawnattr_init(&attr)
-        // POSIX_SPAWN_SETPGROUP で新しいプロセスグループを作成
-        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETPGROUP))
+        // POSIX_SPAWN_SETPGROUP: 新しいプロセスグループを作成
+        // POSIX_SPAWN_CLOEXEC_DEFAULT: 親のファイルディスクリプタを継承しない（サーバーソケット等）
+        let flags = Int16(POSIX_SPAWN_SETPGROUP) | Int16(POSIX_SPAWN_CLOEXEC_DEFAULT)
+        posix_spawnattr_setflags(&attr, flags)
         posix_spawnattr_setpgroup(&attr, 0)  // 自身のPIDをプロセスグループIDに
 
         // Setup file actions to redirect stdio to slave PTY
@@ -203,7 +208,13 @@ public final class PTY: @unchecked Sendable {
     }
 
     public func writeLine(_ string: String) throws {
-        try write(string + "\r")  // PTY expects carriage return for Enter key
+        guard let stringData = string.data(using: .utf8) else {
+            throw PTYError.encodingFailed
+        }
+        // Send string first, then Enter with delay for TUI apps
+        try writeRaw(stringData)
+        usleep(10000)  // 10ms delay before Enter
+        try writeRaw(Data([0x0D]))  // Send Enter (\r)
     }
 
     public func writeRaw(_ data: Data) throws {

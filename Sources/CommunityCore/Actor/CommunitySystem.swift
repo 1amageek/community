@@ -84,8 +84,8 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
         // Create SystemActor immediately so it's available for member queries
         _ = createSystemActor()
 
-        // Start accepting connections
-        let acceptTask: Task<Void, Never> = Task { [weak self] in
+        // Start accepting connections (low priority to avoid interfering with PTY)
+        let acceptTask: Task<Void, Never> = Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
             await self.acceptConnections()
         }

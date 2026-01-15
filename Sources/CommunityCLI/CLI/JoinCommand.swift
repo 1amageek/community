@@ -154,46 +154,76 @@ public struct JoinCommand: AsyncParsableCommand {
 
         // PTY and Member were already created above (before peer connections)
 
-        // Setup signal handling
+        // Setup signal handling for SIGINT (Ctrl+C) and SIGHUP (terminal close)
         signal(SIGINT, SIG_IGN)
-        let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
-        let shouldExit = Mutex(false)
+        signal(SIGHUP, SIG_IGN)
+        signal(SIGTERM, SIG_IGN)
 
+        let exitSemaphore = DispatchSemaphore(value: 0)
+
+        let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
         sigintSource.setEventHandler {
-            shouldExit.withLock { $0 = true }
+            exitSemaphore.signal()
         }
         sigintSource.resume()
 
-        // Forward PTY output to stdout - raw bytes
-        let outputTask = Task {
-            for await byte in pty.bytes {
-                FileHandle.standardOutput.write(Data([byte]))
+        let sighupSource = DispatchSource.makeSignalSource(signal: SIGHUP, queue: .global())
+        sighupSource.setEventHandler {
+            exitSemaphore.signal()
+        }
+        sighupSource.resume()
+
+        let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
+        sigtermSource.setEventHandler {
+            exitSemaphore.signal()
+        }
+        sigtermSource.resume()
+
+        // Forward PTY output to stdout - use dedicated thread with Darwin.write
+        let stdoutFD = FileHandle.standardOutput.fileDescriptor
+        let outputThread = Thread { [pty] in
+            let fd = pty.masterFileDescriptor
+            var readBuffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let bytesRead = Darwin.read(fd, &readBuffer, readBuffer.count)
+                if bytesRead <= 0 {
+                    break
+                }
+                _ = readBuffer.withUnsafeBufferPointer { ptr in
+                    Darwin.write(stdoutFD, ptr.baseAddress!, bytesRead)
+                }
             }
         }
+        outputThread.start()
 
-        // Forward stdin to PTY - read raw bytes and write directly
-        let inputTask = Task {
-            while !shouldExit.withLock({ $0 }) {
+        // Forward stdin to PTY - run on dedicated thread to avoid blocking async runtime
+        let inputThread = Thread {
+            while true {
                 var buffer = [UInt8](repeating: 0, count: 256)
                 let bytesRead = Darwin.read(stdinFD, &buffer, buffer.count)
                 if bytesRead > 0 {
                     try? pty.writeRaw(Data(buffer[0..<bytesRead]))
-                } else if bytesRead == 0 {
-                    break  // EOF
+                } else if bytesRead <= 0 {
+                    break  // EOF or error
                 }
             }
         }
+        inputThread.start()
 
-        // Wait until SIGINT
-        while !shouldExit.withLock({ $0 }) {
-            try await Task.sleep(for: .milliseconds(100))
+        // Wait until signal (bridges blocking wait to async context)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                exitSemaphore.wait()
+                continuation.resume()
+            }
         }
 
         // Cleanup
         print("\nLeaving...")
         sigintSource.cancel()
-        inputTask.cancel()
-        outputTask.cancel()
+        sighupSource.cancel()
+        sigtermSource.cancel()
+        // Note: outputThread and inputThread will terminate when PTY is closed
         pty.close()
         try await system.stop()
         print("'\(memberName)' left")
