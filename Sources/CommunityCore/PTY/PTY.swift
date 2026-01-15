@@ -203,7 +203,7 @@ public final class PTY: @unchecked Sendable {
     }
 
     public func writeLine(_ string: String) throws {
-        try write(string + "\n")
+        try write(string + "\r")  // PTY expects carriage return for Enter key
     }
 
     public func writeRaw(_ data: Data) throws {

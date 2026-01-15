@@ -42,10 +42,10 @@ cp .build/release/mm /usr/local/bin/
 
 ```bash
 # Terminal 1: Start first member (binds to port 50051)
-mm join zsh
+mm join  # Uses $SHELL (e.g., zsh) by default
 
 # Terminal 2: Start second member (auto-connects to existing server)
-mm join zsh
+mm join
 
 # Terminal 3: List all members
 mm list
@@ -60,10 +60,10 @@ mm list
 
 ```bash
 # Machine A (192.168.1.100)
-mm join zsh --name alice
+mm join --name alice
 
 # Machine B
-mm join zsh --name bob --peer alice@192.168.1.100:50051
+mm join --name bob --peer alice@192.168.1.100:50051
 
 # From Machine B
 mm tell alice "Hello!"
@@ -74,17 +74,22 @@ mm tell alice "Hello!"
 ### Join the Community
 
 ```bash
-# Join with a shell command
+# Join with default shell ($SHELL)
+mm join
+
+# Join with a specific shell/command
 mm join zsh
+mm join bash
+mm join claude
 
 # Specify custom name
-mm join zsh --name alice
+mm join --name alice
 
 # Connect to a peer on another machine
-mm join zsh --name bob --peer alice@192.168.1.100:50051
+mm join --name bob --peer alice@192.168.1.100:50051
 
 # Use a specific port (default: 50051, auto-fallback if busy)
-mm join zsh --port 50052
+mm join --port 50052
 ```
 
 **Automatic Port Handling:**
@@ -122,7 +127,7 @@ The list shows all members known to the connected peer, including members from o
 
 | Command | Description |
 |---------|-------------|
-| `mm join <command>` | Join the community with a PTY running the command |
+| `mm join [command]` | Join the community with a PTY (uses $SHELL if command omitted) |
 | `mm tell <name> <message>` | Send a message to a member's PTY |
 | `mm list` | List all members (local + remote) |
 

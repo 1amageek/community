@@ -31,11 +31,11 @@
 #### 同一デバイス（自動共有）
 ```bash
 # Terminal 1
-mm join zsh --name alice
+mm join --name alice  # $SHELL を自動使用
 # → サーバー起動 (50051)
 
 # Terminal 2
-mm join zsh --name bob
+mm join --name bob
 # → localhost:50051 に自動接続（サーバー共有）
 
 # Terminal 3
@@ -46,12 +46,12 @@ mm list
 #### 同一ネットワーク（自動発見）
 ```bash
 # Machine A
-mm join zsh --name alice
+mm join --name alice
 # → サーバー起動 (50051)
 # → mDNS で広告
 
 # Machine B
-mm join zsh --name bob
+mm join --name bob
 # → サーバー起動 (50051)
 # → mDNS で alice を発見、自動接続
 
@@ -62,10 +62,10 @@ mm list              # alice, bob 両方が見える
 #### 異なるネットワーク（手動接続）
 ```bash
 # Machine A (グローバル IP: 203.0.113.10)
-mm join zsh --name alice
+mm join --name alice
 
 # Machine B
-mm join zsh --name bob --peer alice@203.0.113.10:50051
+mm join --name bob --peer alice@203.0.113.10:50051
 ```
 
 ### アーキテクチャ概要
@@ -91,7 +91,8 @@ mm join zsh --name bob --peer alice@203.0.113.10:50051
 ```bash
 swift build
 swift test
-swift run mm
+swift run mm join  # $SHELL で起動
+swift run mm join zsh  # 明示的に zsh で起動
 ```
 
 ## 依存関係
@@ -157,6 +158,8 @@ swift-peer/PeerGRPC, PeerSocket
 - [x] Member 交換プロトコル（双方向）
 - [x] `mm list` で local + remote メンバー表示
 - [x] `mm tell` でリモートメンバーにメッセージ送信
+- [x] `mm join` で $SHELL を自動使用（コマンド省略時）
+- [x] 接続タイムアウト（5秒）
 
 ### 一時無効
 

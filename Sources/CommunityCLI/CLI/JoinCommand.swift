@@ -14,8 +14,8 @@ public struct JoinCommand: AsyncParsableCommand {
         abstract: "Join as a member with a PTY running a command"
     )
 
-    @Argument(help: "Command to run in the PTY (e.g., /bin/bash, claude)")
-    var command: String
+    @Argument(help: "Command to run in the PTY (e.g., /bin/bash, claude). If omitted, uses $SHELL.")
+    var command: String?
 
     @Option(name: .shortAndLong, help: "Member name (defaults to terminal name)")
     var name: String?
@@ -90,7 +90,8 @@ public struct JoinCommand: AsyncParsableCommand {
 
         // 3. Create PTY and register member BEFORE connecting to peers
         //    so that exchangeMemberInfo can see this member
-        let pty = try PTY(command: command)
+        let actualCommand = command ?? ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let pty = try PTY(command: actualCommand)
         _ = try system.createMember(name: memberName, pty: pty, ownsPTY: false)
 
         // 4. If we're on auto-assigned port (because default was busy),
