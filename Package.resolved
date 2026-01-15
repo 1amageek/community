@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/1amageek/swift-actor-runtime.git",
       "state" : {
-        "revision" : "e2fb5c8b660f368f99dfc75f27c28d413f293418",
-        "version" : "0.4.0"
+        "revision" : "8d6a2af8a170bb51558ba722a1cf366a4bced13d",
+        "version" : "0.4.1"
       }
     },
     {

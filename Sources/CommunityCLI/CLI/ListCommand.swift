@@ -31,56 +31,28 @@ public struct ListCommand: AsyncParsableCommand {
 
         print("Connecting to \(host):\(port)...")
 
-        // Track connection result
-        actor ConnectionState {
-            var result: Result<Void, Error>?
-
-            func setResult(_ result: Result<Void, Error>) {
-                if self.result == nil {
-                    self.result = result
+        // Connect with timeout
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try await system.connectToPeer(targetPeerID)
                 }
-            }
-
-            func getResult() -> Result<Void, Error>? {
-                return result
-            }
-        }
-
-        let state = ConnectionState()
-
-        // Start connection in background
-        Task.detached {
-            do {
-                try await system.connectToPeer(targetPeerID)
-                await state.setResult(.success(()))
-            } catch {
-                await state.setResult(.failure(error))
-            }
-        }
-
-        // Poll with timeout
-        let timeoutSeconds = 5
-        var connectionSucceeded = false
-        pollLoop: for _ in 0..<(timeoutSeconds * 10) {
-            if let result = await state.getResult() {
-                switch result {
-                case .success:
-                    connectionSucceeded = true
-                    break pollLoop
-                case .failure(let error):
-                    print("Error: Failed to connect to \(host):\(port)")
-                    print("  \(error)")
-                    try await system.stop()
-                    throw ExitCode.failure
+                group.addTask {
+                    try await Task.sleep(for: .seconds(5))
+                    throw CommunityError.connectionTimeout
                 }
+                // Wait for first to complete (connection or timeout)
+                try await group.next()
+                group.cancelAll()
             }
-            try await Task.sleep(for: .milliseconds(100))
-        }
-
-        // Check if we timed out
-        if !connectionSucceeded {
+        } catch is CommunityError {
             print("Error: Failed to connect to \(host):\(port)")
             print("  Connection timed out (no server running?)")
+            try await system.stop()
+            throw ExitCode.failure
+        } catch {
+            print("Error: Failed to connect to \(host):\(port)")
+            print("  \(error)")
             try await system.stop()
             throw ExitCode.failure
         }

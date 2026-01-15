@@ -10,6 +10,7 @@ public enum CommunityError: Error, Sendable {
     case invalidResponse
     case nameAlreadyTaken(String)
     case connectionFailed(String)
+    case connectionTimeout
 }
 
 /// Standard error codes for invocation failures
