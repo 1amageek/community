@@ -49,11 +49,11 @@ mm join
 
 # Terminal 3: List all members
 mm list
-# Output:
-# NAME                PEER
-# --------------------------------------------------
-# ttys001             ttys001@127.0.0.1:50051
-# ttys002             ttys002@127.0.0.1:52341
+# Output (* marks yourself):
+#   NAME                PEER
+# ----------------------------------------------------
+# * ttys001             ttys001@127.0.0.1:50051
+#   ttys002             ttys002@127.0.0.1:52341
 ```
 
 ### Cross-Network (Manual Connection)
@@ -123,6 +123,22 @@ mm list --host 192.168.1.100 --port 50051
 
 The list shows all members known to the connected peer, including members from other connected peers.
 
+### Disconnect Peers / Kill Processes
+
+```bash
+# Disconnect a specific peer
+mm kill codex@127.0.0.1:50051
+
+# Disconnect multiple peers at once
+mm kill alice@127.0.0.1:50051 bob@192.168.1.100:50051
+
+# Kill all mm join processes (SIGTERM)
+mm kill --all
+
+# Force kill all mm join processes (SIGKILL)
+mm kill --all -f
+```
+
 ## Commands
 
 | Command | Description |
@@ -130,6 +146,11 @@ The list shows all members known to the connected peer, including members from o
 | `mm join [command]` | Join the community with a PTY (uses $SHELL if command omitted) |
 | `mm tell <name> <message>` | Send a message to a member's PTY |
 | `mm list` | List all members (local + remote) |
+| `mm kill <peer-id>...` | Disconnect specific peers from the mesh |
+| `mm kill --all` | Kill all mm join processes |
+| `mm leave <name>` | Leave the community (shows usage hint) |
+
+**Note:** `mm` without arguments defaults to `mm list`.
 
 ### Join Options
 
@@ -138,8 +159,16 @@ The list shows all members known to the connected peer, including members from o
 | `--name, -n` | Member name | TTY name (e.g., ttys001) |
 | `--host` | Host address to bind | 127.0.0.1 |
 | `--port, -p` | Port to listen on | 50051 (auto-fallback if busy) |
-| `--peer` | Peer to connect to (format: name@host:port) | - |
+| `--peer` | Peer(s) to connect to (format: name@host:port, can specify multiple) | - |
 | `--no-discovery` | Disable mDNS advertising | false |
+
+### Kill Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `<peer-id>...` | Peer ID(s) to disconnect (format: name@host:port) | - |
+| `--all` | Kill all mm join processes | false |
+| `-f, --force` | Force kill with SIGKILL (instead of SIGTERM) | false |
 
 ### List/Tell Options
 
