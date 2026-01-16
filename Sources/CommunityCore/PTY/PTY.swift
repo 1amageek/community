@@ -34,7 +34,7 @@ public final class PTY: TTY, @unchecked Sendable {
     /// Expose master file descriptor for direct I/O
     public var masterFileDescriptor: Int32 { masterFD }
 
-    public init(command: String) throws {
+    public init(command: String, environment: [String: String] = [:]) throws {
         // Create pipe for communication
         var masterPty: Int32 = -1
         var slavePty: Int32 = -1
@@ -89,10 +89,24 @@ public final class PTY: TTY, @unchecked Sendable {
         let shell = command.isEmpty ? "/bin/bash" : command
         let args = ["/bin/bash", "-c", shell]  // TODO: -l を戻す
 
+        // Build environment: inherit current environ + additional variables
+        var envStrings: [String] = []
+        var envp = environ
+        while let ptr = envp.pointee {
+            envStrings.append(String(cString: ptr))
+            envp = envp.advanced(by: 1)
+        }
+        // Add custom environment variables
+        for (key, value) in environment {
+            envStrings.append("\(key)=\(value)")
+        }
+
         // Spawn process
         var pid: pid_t = 0
         let result = args.withCStrings { cArgs in
-            posix_spawn(&pid, "/bin/bash", &fileActions, &attr, cArgs, environ)
+            envStrings.withCStrings { cEnv in
+                posix_spawn(&pid, "/bin/bash", &fileActions, &attr, cArgs, cEnv)
+            }
         }
 
         // Cleanup spawn resources

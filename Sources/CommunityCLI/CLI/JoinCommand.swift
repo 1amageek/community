@@ -91,7 +91,7 @@ public struct JoinCommand: AsyncParsableCommand {
         // 3. Create PTY and register member BEFORE connecting to peers
         //    so that exchangeMemberInfo can see this member
         let actualCommand = command ?? ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        let pty = try PTY(command: actualCommand)
+        let pty = try PTY(command: actualCommand, environment: ["MM_NAME": memberName])
         _ = try system.createMember(name: memberName, tty: pty, ownsTTY: false)
 
         // 4. If we're on auto-assigned port (because default was busy),

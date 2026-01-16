@@ -64,15 +64,20 @@ public struct ListCommand: AsyncParsableCommand {
         if members.isEmpty {
             print("No members registered")
         } else {
+            // Check if we're running inside an mm join session
+            let selfName = ProcessInfo.processInfo.environment["MM_NAME"]
+
             // Print header
-            print("\("NAME".padding(toLength: 20, withPad: " ", startingAt: 0))\("PEER".padding(toLength: 30, withPad: " ", startingAt: 0))")
-            print(String(repeating: "-", count: 50))
+            print("  \("NAME".padding(toLength: 20, withPad: " ", startingAt: 0))\("PEER".padding(toLength: 30, withPad: " ", startingAt: 0))")
+            print(String(repeating: "-", count: 52))
 
             // Print members
             for member in members {
+                let isSelf = (selfName != nil && member.name == selfName)
+                let marker = isSelf ? "* " : "  "
                 let name = member.name.padding(toLength: 20, withPad: " ", startingAt: 0)
                 let peerStr = member.peerID.value.padding(toLength: 30, withPad: " ", startingAt: 0)
-                print("\(name)\(peerStr)")
+                print("\(marker)\(name)\(peerStr)")
             }
         }
     }
