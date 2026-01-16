@@ -33,14 +33,20 @@ extension CommunitySystem {
         // Clean up on disconnection
         cleanupDisconnectedPeer(peerID)
 
-        // Cancel all pending calls - connection is gone
-        let pending = pendingCalls.withLock { pending in
-            let copy = pending
-            pending.removeAll()
-            return copy
+        // Cancel only pending calls that were sent to the disconnected peer
+        let callIDsToCancel = state.withLock { s -> [String] in
+            let callIDs = s.outgoingCallPeers.filter { $0.value == peerID }.map { $0.key }
+            for callID in callIDs {
+                s.outgoingCallPeers.removeValue(forKey: callID)
+            }
+            return callIDs
         }
-        for (_, continuation) in pending {
-            continuation.resume(throwing: CommunityError.connectionFailed("Peer disconnected: \(peerID.name)"))
+
+        for callID in callIDsToCancel {
+            let continuation = pendingCalls.withLock { pending in
+                pending.removeValue(forKey: callID)
+            }
+            continuation?.resume(throwing: CommunityError.connectionFailed("Peer disconnected: \(peerID.name)"))
         }
     }
 

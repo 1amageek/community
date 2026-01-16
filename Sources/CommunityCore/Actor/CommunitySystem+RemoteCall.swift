@@ -170,10 +170,14 @@ extension CommunitySystem {
         )
 
         // Send invocation and wait for response
+        let targetPeerID = actor.id.peerID
         let response = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ResponseEnvelope, Error>) in
-            // Register pending call
+            // Register pending call and track target peer
             pendingCalls.withLock { pending in
                 pending[envelope.callID] = continuation
+            }
+            state.withLock { s in
+                s.outgoingCallPeers[envelope.callID] = targetPeerID
             }
 
             // Send the invocation
@@ -185,9 +189,17 @@ extension CommunitySystem {
                     let cont = self.pendingCalls.withLock { pending in
                         pending.removeValue(forKey: envelope.callID)
                     }
+                    self.state.withLock { s in
+                        s.outgoingCallPeers.removeValue(forKey: envelope.callID)
+                    }
                     cont?.resume(throwing: error)
                 }
             }
+        }
+
+        // Clean up tracking
+        state.withLock { s in
+            s.outgoingCallPeers.removeValue(forKey: envelope.callID)
         }
 
         switch response.result {
@@ -219,10 +231,14 @@ extension CommunitySystem {
         )
 
         // Send invocation and wait for response
+        let targetPeerID = actor.id.peerID
         let response = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ResponseEnvelope, Error>) in
-            // Register pending call
+            // Register pending call and track target peer
             pendingCalls.withLock { pending in
                 pending[envelope.callID] = continuation
+            }
+            state.withLock { s in
+                s.outgoingCallPeers[envelope.callID] = targetPeerID
             }
 
             // Send the invocation
@@ -234,9 +250,17 @@ extension CommunitySystem {
                     let cont = self.pendingCalls.withLock { pending in
                         pending.removeValue(forKey: envelope.callID)
                     }
+                    self.state.withLock { s in
+                        s.outgoingCallPeers.removeValue(forKey: envelope.callID)
+                    }
                     cont?.resume(throwing: error)
                 }
             }
+        }
+
+        // Clean up tracking
+        state.withLock { s in
+            s.outgoingCallPeers.removeValue(forKey: envelope.callID)
         }
 
         if case .failure(let error) = response.result {

@@ -7,21 +7,22 @@ import PeerNode
 public struct KillCommand: AsyncParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "kill",
-        abstract: "Disconnect peers or kill mm processes",
+        abstract: "Disconnect peers or kill mm join processes",
         discussion: """
-        Disconnect a specific peer from the mesh, or kill all mm processes.
+        Disconnect specific peers from the mesh, or kill mm join processes.
 
         Examples:
-          mm kill ttys000@127.0.0.1:50051   # Disconnect this peer
-          mm kill --all                      # Kill all mm processes
-          mm kill --all -f                   # Force kill all (SIGKILL)
+          mm kill codex@127.0.0.1:50051                    # Disconnect one peer
+          mm kill codex@127.0.0.1:50051 bob@127.0.0.1:50051  # Disconnect multiple peers
+          mm kill --all                                    # Kill all mm join processes
+          mm kill --all -f                                 # Force kill (SIGKILL)
         """
     )
 
-    @Argument(help: "Peer ID to disconnect (e.g., ttys000@127.0.0.1:50051)")
-    var peer: String?
+    @Argument(help: "Peer IDs to disconnect (e.g., codex@127.0.0.1:50051)")
+    var peers: [String] = []
 
-    @Flag(name: .long, help: "Kill all mm processes instead of disconnecting")
+    @Flag(name: .long, help: "Kill all mm join processes")
     var all: Bool = false
 
     @Flag(name: .shortAndLong, help: "Force kill (SIGKILL instead of SIGTERM)")
@@ -32,45 +33,73 @@ public struct KillCommand: AsyncParsableCommand {
     public func run() async throws {
         if all {
             try await killAllProcesses()
-        } else if let peerStr = peer {
-            try await disconnectPeer(peerStr)
+        } else if !peers.isEmpty {
+            try await disconnectPeers(peers)
         } else {
-            print("Usage: mm kill <peer-id> or mm kill --all")
+            print("Usage: mm kill <peer-id>... or mm kill --all")
             print("Run 'mm kill --help' for more information.")
         }
     }
 
-    private func disconnectPeer(_ peerStr: String) async throws {
-        // Parse peer ID
-        guard let peerID = PeerID(peerStr) else {
-            print("Invalid peer ID format: \(peerStr)")
-            print("Expected format: name@host:port (e.g., ttys000@127.0.0.1:50051)")
+    private func disconnectPeers(_ peerStrs: [String]) async throws {
+        // Parse and validate peer IDs
+        var validPeers: [(str: String, id: PeerID)] = []
+        for peerStr in peerStrs {
+            if let peerID = PeerID(peerStr) {
+                validPeers.append((str: peerStr, id: peerID))
+            } else {
+                print("Warning: Invalid peer ID format '\(peerStr)' - skipping")
+                print("  Expected format: name@host:port (e.g., codex@127.0.0.1:50051)")
+            }
+        }
+
+        if validPeers.isEmpty {
+            print("No valid peer IDs provided")
             return
         }
 
-        // Connect to local server
-        let node = PeerNode(name: "kill-cmd", port: 0)
-        try await node.start()
-        defer { Task { await node.stop() } }
-
-        let system = CommunitySystem(name: "kill-cmd", node: node)
-        try await system.start()
-
-        // Connect to local server to get access to the mesh
-        let localServer = PeerID(name: "server", host: "127.0.0.1", port: 50051)
-        do {
-            try await system.connectToPeer(localServer)
-        } catch {
-            print("Error: Could not connect to local mm server")
-            print("Make sure an mm process is running.")
-            return
+        // Group peers by server (host:port)
+        var peersByServer: [String: [(str: String, id: PeerID)]] = [:]
+        for peer in validPeers {
+            let serverKey = "\(peer.id.host):\(peer.id.port)"
+            peersByServer[serverKey, default: []].append(peer)
         }
 
-        // Disconnect the target peer
-        await system.disconnectPeer(peerID)
-        print("Disconnected: \(peerStr)")
+        // Process each server
+        for (serverKey, peersOnServer) in peersByServer {
+            guard let firstPeer = peersOnServer.first else { continue }
 
-        try await system.stop()
+            // Connect to this server
+            let node = PeerNode(name: "kill-cmd", port: 0)
+            do {
+                try await node.start()
+            } catch {
+                print("Warning: Could not start node for server \(serverKey) - skipping")
+                continue
+            }
+
+            let system = CommunitySystem(name: "kill-cmd", node: node)
+            try await system.start()
+
+            let serverPeerID = PeerID(name: "server", host: firstPeer.id.host, port: firstPeer.id.port)
+            do {
+                try await system.connectToPeer(serverPeerID)
+            } catch {
+                print("Warning: Could not connect to mm server at \(serverKey) - skipping")
+                try await system.stop()
+                await node.stop()
+                continue
+            }
+
+            // Disconnect each peer on this server
+            for peer in peersOnServer {
+                await system.disconnectPeer(peer.id)
+                print("Disconnected: \(peer.str)")
+            }
+
+            try await system.stop()
+            await node.stop()
+        }
     }
 
     private func killAllProcesses() async throws {
@@ -94,15 +123,15 @@ public struct KillCommand: AsyncParsableCommand {
             return
         }
 
-        // Parse PIDs of mm join/attach processes
+        // Parse PIDs of mm join processes
         let currentPID = ProcessInfo.processInfo.processIdentifier
         var pidsToKill: [pid_t] = []
 
         for line in output.split(separator: "\n") {
             let lineStr = String(line).trimmingCharacters(in: .whitespaces)
 
-            // Match "mm join" or "mm attach" in the command
-            if lineStr.contains("mm join") || lineStr.contains("mm attach") {
+            // Match "mm join" in the command
+            if lineStr.contains("mm join") {
                 let parts = lineStr.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
                 if let pidStr = parts.first, let pid = pid_t(pidStr) {
                     if pid != currentPID {

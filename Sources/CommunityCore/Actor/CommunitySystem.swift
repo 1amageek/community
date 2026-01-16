@@ -37,6 +37,7 @@ public final class CommunitySystem: DistributedActorSystem, @unchecked Sendable 
     struct State: ~Copyable {
         var isStarted: Bool = false
         var responseRoutes: [String: String] = [:]  // callID → senderPeerID.value
+        var outgoingCallPeers: [String: PeerID] = [:]  // callID → target peerID (for outgoing calls)
         var messageTasks: [Task<Void, Never>] = []
         var acceptTask: Task<Void, Never>?
         var remoteMembers: [String: MemberInfo] = [:]  // key: actorID.id -> MemberInfo
