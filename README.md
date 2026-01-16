@@ -50,10 +50,10 @@ mm join
 # Terminal 3: List all members
 mm list
 # Output (* marks yourself):
-#   NAME                PEER
-# ----------------------------------------------------
-# * ttys001             ttys001@127.0.0.1:50051
-#   ttys002             ttys002@127.0.0.1:52341
+#   NAME        PEER                        COMMAND   PROCESS   CWD
+# ----------------------------------------------------------------------------------------------------
+# * ttys001     ttys001@127.0.0.1:50051     zsh       -         ~/Desktop/community
+#   ttys002     ttys002@127.0.0.1:52341     zsh       vim       ~/projects
 ```
 
 ### Cross-Network (Manual Connection)

@@ -57,8 +57,8 @@ public struct ListCommand: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
-        let systemActor = try system.remoteSystemActor(peerID: targetPeerID)
-        let members = try await systemActor.listMembers()
+        // Get members via list-client's own system (includes remote members from connected peers)
+        let members = await system.allMembersWithStatus()
         try await system.stop()
 
         if members.isEmpty {
@@ -68,17 +68,47 @@ public struct ListCommand: AsyncParsableCommand {
             let selfName = ProcessInfo.processInfo.environment["MM_NAME"]
 
             // Print header
-            print("  \("NAME".padding(toLength: 20, withPad: " ", startingAt: 0))\("PEER".padding(toLength: 30, withPad: " ", startingAt: 0))")
-            print(String(repeating: "-", count: 52))
+            let nameCol = "NAME".padding(toLength: 12, withPad: " ", startingAt: 0)
+            let peerCol = "PEER".padding(toLength: 28, withPad: " ", startingAt: 0)
+            let cmdCol = "COMMAND".padding(toLength: 10, withPad: " ", startingAt: 0)
+            let procCol = "PROCESS".padding(toLength: 10, withPad: " ", startingAt: 0)
+            let cwdCol = "CWD"
+
+            print("  \(nameCol)\(peerCol)\(cmdCol)\(procCol)\(cwdCol)")
+            print(String(repeating: "-", count: 100))
 
             // Print members
             for member in members {
                 let isSelf = (selfName != nil && member.name == selfName)
                 let marker = isSelf ? "* " : "  "
-                let name = member.name.padding(toLength: 20, withPad: " ", startingAt: 0)
-                let peerStr = member.peerID.value.padding(toLength: 30, withPad: " ", startingAt: 0)
-                print("\(marker)\(name)\(peerStr)")
+
+                let name = member.name.padding(toLength: 12, withPad: " ", startingAt: 0)
+                let peerStr = member.peerID.value.padding(toLength: 28, withPad: " ", startingAt: 0)
+                let cmd = (member.command ?? "-").padding(toLength: 10, withPad: " ", startingAt: 0)
+                let proc = (member.foregroundProcess ?? "-").padding(toLength: 10, withPad: " ", startingAt: 0)
+                let cwd = formatCWD(member.cwd)
+
+                print("\(marker)\(name)\(peerStr)\(cmd)\(proc)\(cwd)")
             }
         }
+    }
+
+    /// Format CWD for display (replace home with ~, truncate if needed)
+    private func formatCWD(_ cwd: String?) -> String {
+        guard let cwd = cwd else { return "-" }
+
+        // Replace home directory with ~
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        var display = cwd
+        if cwd.hasPrefix(home) {
+            display = "~" + cwd.dropFirst(home.count)
+        }
+
+        // Truncate from left if too long
+        if display.count > 35 {
+            display = "..." + String(display.suffix(32))
+        }
+
+        return display
     }
 }

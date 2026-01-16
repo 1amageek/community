@@ -31,9 +31,10 @@ public distributed actor SystemActor {
     }
 
     /// List all members known by this peer (local + remote)
-    /// - Returns: Array of member information
-    public distributed func listMembers() -> [MemberInfo] {
-        system.allMembers()
+    /// - Returns: Array of member information with process status
+    public distributed func listMembers() async -> [MemberInfo] {
+        // Return local members with status + remote members without re-fetching
+        await system.localMembersWithStatus() + system.remoteMembersCached()
     }
 }
 

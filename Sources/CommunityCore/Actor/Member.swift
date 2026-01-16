@@ -62,6 +62,21 @@ public distributed actor Member {
         name
     }
 
+    /// Get the command running in this member's PTY
+    public distributed func getCommand() -> String {
+        tty.command
+    }
+
+    /// Get the current working directory
+    public distributed func getCwd() -> String? {
+        tty.cwd
+    }
+
+    /// Get the foreground process name
+    public distributed func getForegroundProcess() -> String? {
+        tty.foregroundProcess
+    }
+
     // MARK: - Lifecycle
 
     deinit {

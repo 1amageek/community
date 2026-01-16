@@ -22,6 +22,18 @@ public enum PTYError: Error, Sendable, Equatable {
     case alreadyClosed
 }
 
+// libproc declarations (not in standard Darwin module)
+@_silgen_name("proc_pidinfo")
+private func proc_pidinfo(_ pid: Int32, _ flavor: Int32, _ arg: UInt64,
+                          _ buffer: UnsafeMutableRawPointer?, _ buffersize: Int32) -> Int32
+
+@_silgen_name("proc_name")
+private func proc_name(_ pid: Int32, _ buffer: UnsafeMutableRawPointer?, _ buffersize: UInt32) -> Int32
+
+// Constants from sys/proc_info.h
+private let PROC_PIDVNODEPATHINFO: Int32 = 9
+private let MAXCOMLEN: Int32 = 16
+
 public final class PTY: TTY, @unchecked Sendable {
     private let masterFD: Int32
     private let childPID: pid_t
@@ -31,8 +43,79 @@ public final class PTY: TTY, @unchecked Sendable {
     private var isClosed = false
     private let lock = NSLock()
 
+    /// The initial command that was run
+    private let initialCommand: String
+
     /// Expose master file descriptor for direct I/O
     public var masterFileDescriptor: Int32 { masterFD }
+
+    // MARK: - Process Information
+
+    /// The command that was used to start this PTY (e.g., "zsh", "claude")
+    public var command: String {
+        extractCommandName(from: initialCommand)
+    }
+
+    /// Current working directory of the child process
+    public var cwd: String? {
+        getCurrentWorkingDirectory(for: childPID)
+    }
+
+    /// Name of the foreground process in the PTY
+    public var foregroundProcess: String? {
+        getForegroundProcessName()
+    }
+
+    /// Extract just the command name from a full command string
+    private func extractCommandName(from command: String) -> String {
+        // Handle paths like "/bin/zsh" -> "zsh"
+        // Handle commands like "claude --model opus" -> "claude"
+        let components = command.split(separator: " ")
+        guard let first = components.first else { return command }
+        let path = String(first)
+        return (path as NSString).lastPathComponent
+    }
+
+    /// Get current working directory for a process using libproc
+    private func getCurrentWorkingDirectory(for pid: pid_t) -> String? {
+        // proc_vnodepathinfo structure size
+        let size = MemoryLayout<proc_vnodepathinfo>.size
+        let buffer = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: MemoryLayout<proc_vnodepathinfo>.alignment)
+        defer { buffer.deallocate() }
+
+        let result = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, buffer, Int32(size))
+        guard result == size else { return nil }
+
+        let pathInfo = buffer.assumingMemoryBound(to: proc_vnodepathinfo.self).pointee
+        return withUnsafePointer(to: pathInfo.pvi_cdir.vip_path) { ptr in
+            ptr.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { cString in
+                String(cString: cString)
+            }
+        }
+    }
+
+    /// Get the name of the foreground process in the PTY
+    private func getForegroundProcessName() -> String? {
+        // Get foreground process group ID
+        let fgPGID = tcgetpgrp(masterFD)
+        guard fgPGID > 0 else { return nil }
+
+        // Get process name using proc_name
+        var nameBuffer = [CChar](repeating: 0, count: Int(MAXCOMLEN) + 1)
+        let nameLen = proc_name(fgPGID, &nameBuffer, UInt32(nameBuffer.count))
+
+        guard nameLen > 0 else { return nil }
+        let name = nameBuffer.withUnsafeBufferPointer { ptr in
+            String(cString: ptr.baseAddress!)
+        }
+
+        // Return nil if same as the initial command (no interesting foreground process)
+        let initialCmdName = extractCommandName(from: initialCommand)
+        if name == initialCmdName || name == "bash" {
+            return nil
+        }
+        return name
+    }
 
     public init(command: String, environment: [String: String] = [:]) throws {
         // Create pipe for communication
@@ -123,6 +206,7 @@ public final class PTY: TTY, @unchecked Sendable {
 
         self.masterFD = masterPty
         self.childPID = pid
+        self.initialCommand = command
         var pgid = getpgid(pid)
         if pgid <= 0 {
             _ = setpgid(pid, pid)
