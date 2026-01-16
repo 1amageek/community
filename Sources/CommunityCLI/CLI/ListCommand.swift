@@ -68,13 +68,14 @@ public struct ListCommand: AsyncParsableCommand {
             let selfName = ProcessInfo.processInfo.environment["MM_NAME"]
 
             // Print header
-            let nameCol = "NAME".padding(toLength: 12, withPad: " ", startingAt: 0)
-            let peerCol = "PEER".padding(toLength: 28, withPad: " ", startingAt: 0)
+            let nameCol = "NAME".padding(toLength: 20, withPad: " ", startingAt: 0)
+            let hostCol = "HOST".padding(toLength: 12, withPad: " ", startingAt: 0)
+            let portCol = "PORT".padding(toLength: 8, withPad: " ", startingAt: 0)
             let cmdCol = "COMMAND".padding(toLength: 10, withPad: " ", startingAt: 0)
             let procCol = "PROCESS".padding(toLength: 10, withPad: " ", startingAt: 0)
             let cwdCol = "CWD"
 
-            print("  \(nameCol)\(peerCol)\(cmdCol)\(procCol)\(cwdCol)")
+            print("  \(nameCol)\(hostCol)\(portCol)\(cmdCol)\(procCol)\(cwdCol)")
             print(String(repeating: "-", count: 100))
 
             // Print members
@@ -82,13 +83,14 @@ public struct ListCommand: AsyncParsableCommand {
                 let isSelf = (selfName != nil && member.name == selfName)
                 let marker = isSelf ? "* " : "  "
 
-                let name = member.name.padding(toLength: 12, withPad: " ", startingAt: 0)
-                let peerStr = member.peerID.value.padding(toLength: 28, withPad: " ", startingAt: 0)
+                let name = member.name.padding(toLength: 20, withPad: " ", startingAt: 0)
+                let host = member.peerID.host.padding(toLength: 12, withPad: " ", startingAt: 0)
+                let port = String(member.peerID.port).padding(toLength: 8, withPad: " ", startingAt: 0)
                 let cmd = (member.command ?? "-").padding(toLength: 10, withPad: " ", startingAt: 0)
                 let proc = (member.foregroundProcess ?? "-").padding(toLength: 10, withPad: " ", startingAt: 0)
                 let cwd = formatCWD(member.cwd)
 
-                print("\(marker)\(name)\(peerStr)\(cmd)\(proc)\(cwd)")
+                print("\(marker)\(name)\(host)\(port)\(cmd)\(proc)\(cwd)")
             }
         }
     }
